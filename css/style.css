@@ -140,8 +140,8 @@ button {
 .btn--primary { border: 2px solid rgba(255, 255, 255, 0.65) !important; background: var(--red); color: var(--white); border-color: var(--red); }
 .btn--primary:hover:not(:disabled) { background: var(--red-dark); border-color: var(--red-dark); }
 
-.btn--neutral { background: var(--white); color: var(--black-light); border-color: var(--gray-200); }
-.btn--neutral:hover:not(:disabled) { background: var(--gray-50); box-shadow: var(--shadow-sm); }
+.btn--neutral { background: var(--gray-50); color: var(--black-light); border-color: var(--gray-200); }
+.btn--neutral:hover:not(:disabled) { background: var(--gray-100); box-shadow: var(--shadow-sm); }
 
 .btn--danger { background: #dc2626; color: var(--white); border-color: #dc2626; }
 .btn--danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
