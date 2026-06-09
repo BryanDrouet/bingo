@@ -1,4 +1,4 @@
-# Bingo Interactif - Configuration Base de Donnees (Firebase)
+# Bingo Interactif - Configuration Base de Donnees (Firebase) 
 
 Ce projet utilise **Firebase Authentication** (Google) et **Cloud Firestore**.
 
