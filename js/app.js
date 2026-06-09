@@ -86,6 +86,201 @@ let saveTimer = null;
 let activeGameId = null;
 let liveMarkedCells = [];
 let hasShownWinModal = false;
+let currentViewState = null;
+const HEADER_TRANSITION_MS = 180;
+const VIEW_STATE_STORAGE_KEY = "bingo-view-state";
+const CREATE_DRAFT_STORAGE_KEY = "bingo-create-draft";
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function readStoredJson(key) {
+    try {
+        const raw = sessionStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function writeStoredJson(key, value) {
+    try {
+        sessionStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+}
+
+function removeStoredItem(key) {
+    try {
+        sessionStorage.removeItem(key);
+    } catch {}
+}
+
+function setCurrentViewState(nextState) {
+    currentViewState = {
+        ...(currentViewState || {}),
+        ...nextState,
+        scrollY: 0
+    };
+    writeStoredJson(VIEW_STATE_STORAGE_KEY, currentViewState);
+}
+
+function persistCurrentScrollPosition() {
+    if (!currentViewState) return;
+    currentViewState = {
+        ...currentViewState,
+        scrollY: window.scrollY || 0
+    };
+    writeStoredJson(VIEW_STATE_STORAGE_KEY, currentViewState);
+}
+
+function restoreScrollPosition(scrollY = 0) {
+    if (!scrollY) return;
+    window.requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+    });
+}
+
+function clearPersistedAppState() {
+    currentViewState = null;
+    removeStoredItem(VIEW_STATE_STORAGE_KEY);
+    removeStoredItem(CREATE_DRAFT_STORAGE_KEY);
+}
+
+function readCreateDraft(editId) {
+    const draft = readStoredJson(CREATE_DRAFT_STORAGE_KEY);
+    if (!draft) return null;
+    return (draft.editId || null) === (editId || null) ? draft : null;
+}
+
+function saveCreateDraft(editId) {
+    const size = parseInt(document.getElementById("f-size")?.value, 10) || 3;
+    const cells = Array.from({ length: size * size }, (_, i) => document.getElementById(`cell-${i}`)?.value || "");
+
+    writeStoredJson(CREATE_DRAFT_STORAGE_KEY, {
+        editId: editId || null,
+        title: document.getElementById("f-title")?.value || "",
+        category: document.getElementById("f-category")?.value || "",
+        size,
+        cells
+    });
+}
+
+function clearCreateDraft(editId = null) {
+    const draft = readStoredJson(CREATE_DRAFT_STORAGE_KEY);
+    if (!draft || (draft.editId || null) !== (editId || null)) return;
+    removeStoredItem(CREATE_DRAFT_STORAGE_KEY);
+}
+
+function persistCreateDraftIfNeeded() {
+    if (currentViewState?.name !== "create") return;
+    saveCreateDraft(currentViewState.editId || null);
+}
+
+function getViewContentTargets(root = document) {
+    return [...root.querySelectorAll(".view > :not(.app-header)")];
+}
+
+function animateElementsIn(elements) {
+    if (!elements.length || prefersReducedMotion()) return;
+    elements.forEach(element => {
+        element.classList.remove("ui-fade-leave", "ui-fade-enter", "ui-fade-enter-active");
+        element.classList.add("ui-fade-enter");
+    });
+
+    requestAnimationFrame(() => {
+        elements.forEach(element => {
+            element.classList.add("ui-fade-enter-active");
+        });
+    });
+
+    window.setTimeout(() => {
+        elements.forEach(element => {
+            element.classList.remove("ui-fade-enter", "ui-fade-enter-active");
+        });
+    }, HEADER_TRANSITION_MS + 40);
+}
+
+function animateElementIn(element) {
+    if (!element) return;
+    animateElementsIn([element]);
+}
+
+async function animateCurrentHeaderOut() {
+    const header = document.querySelector(".app-header");
+    if (!header || prefersReducedMotion()) return;
+    header.classList.remove("app-header--enter", "app-header--enter-active");
+    header.classList.add("app-header--leave");
+}
+
+function animateNewHeaderIn() {
+    const header = document.querySelector(".app-header");
+    if (!header || prefersReducedMotion()) return;
+    header.classList.add("app-header--enter");
+    requestAnimationFrame(() => {
+        header.classList.add("app-header--enter-active");
+    });
+    window.setTimeout(() => {
+        header.classList.remove("app-header--enter", "app-header--enter-active");
+    }, HEADER_TRANSITION_MS + 40);
+}
+
+async function animateCurrentViewOut() {
+    if (prefersReducedMotion()) return;
+    animateCurrentHeaderOut();
+    getViewContentTargets().forEach(element => {
+        element.classList.remove("ui-fade-enter", "ui-fade-enter-active");
+        element.classList.add("ui-fade-leave");
+    });
+    await wait(HEADER_TRANSITION_MS);
+}
+
+function animateNewViewIn() {
+    if (prefersReducedMotion()) return;
+    animateNewHeaderIn();
+    animateElementsIn(getViewContentTargets());
+}
+
+async function replaceAppMarkup(markup, { animateOut = false, animateIn = true } = {}) {
+    const app = document.getElementById("app");
+    if (!app) return;
+    if (animateOut) await animateCurrentViewOut();
+    app.innerHTML = markup;
+    if (animateIn) animateNewViewIn();
+}
+
+async function navigateWithHeader(renderFn) {
+    persistCurrentScrollPosition();
+    await animateCurrentViewOut();
+    return renderFn();
+}
+
+function isModifiedClick(event) {
+    return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0;
+}
+
+function isLegalPagePath(pathname) {
+    return pathname.startsWith("/mentions-legales/") || pathname.startsWith("/politique-confidentialite/");
+}
+
+function bindCrossPageHeaderTransitions() {
+    document.addEventListener("click", async event => {
+        const link = event.target.closest("a[href]");
+        if (!link || isModifiedClick(event) || link.target === "_blank" || link.hasAttribute("download")) return;
+
+        const url = new URL(link.href, window.location.origin);
+        if (url.origin !== window.location.origin || !isLegalPagePath(url.pathname)) return;
+
+        event.preventDefault();
+        persistCurrentScrollPosition();
+        await animateCurrentViewOut();
+        window.location.href = url.href;
+    });
+}
 
 function getAppModalElements() {
     return {
@@ -225,9 +420,9 @@ async function fetchAllCategories() {
 }
 
 
-function renderLoginView() {
-    const app = document.getElementById("app");
-    app.innerHTML = `
+async function renderLoginView() {
+    setCurrentViewState({ name: "login" });
+    await replaceAppMarkup(`
         <div class="view view-login">
             <header class="app-header">
                 <div class="header-left">
@@ -248,7 +443,7 @@ function renderLoginView() {
                 </div>
             </div>
         </div>
-    `;
+    `);
     document.getElementById("google-signin-btn")?.addEventListener("click", handleGoogleSignIn);
     updateYears();
     initIcons();
@@ -292,6 +487,8 @@ async function handleSignOut() {
             clearTimeout(saveTimer);
             await saveMarkedCells(activeGameId, [...liveMarkedCells]);
         }
+        clearPersistedAppState();
+        await animateCurrentViewOut();
         await signOut(auth);
     } catch {
         showToast("Erreur lors de la déconnexion.", "error");
@@ -300,11 +497,11 @@ async function handleSignOut() {
 
 
 async function renderDashboard(filterCategory = null) {
-    const app = document.getElementById("app");
+    setCurrentViewState({ name: "dashboard", filterCategory: filterCategory || null, bingoId: null, editId: null });
     const avatarHtml = currentUser.photoURL
         ? `<img src="${currentUser.photoURL}" alt="Photo de profil de ${currentUser.displayName || "utilisateur"}" class="img img--avatar">`
         : "";
-    app.innerHTML = `
+    await replaceAppMarkup(`
         <div class="view view-dashboard">
             <header class="app-header">
                 <div class="header-left">
@@ -334,9 +531,11 @@ async function renderDashboard(filterCategory = null) {
                 </div>
             </main>
         </div>
-    `;
+    `);
     document.getElementById("signout-btn")?.addEventListener("click", handleSignOut);
-    document.getElementById("create-bingo-btn")?.addEventListener("click", () => renderCreateView());
+    document.getElementById("create-bingo-btn")?.addEventListener("click", () => {
+        void navigateWithHeader(() => renderCreateView());
+    });
     updateYears();
     initIcons();
 
@@ -353,18 +552,28 @@ function renderCategoryFilters(categories, active) {
         ...categories.map(c => `<button type="button" class="chip ${active === c ? "is-active" : ""}" data-cat="${c}">${c}</button>`)
     ];
     el.innerHTML = items.join("");
+    animateElementIn(el);
     el.querySelectorAll(".chip").forEach(btn => {
         btn.addEventListener("click", () => changeFilter(btn.dataset.cat || null));
     });
 }
 
 async function changeFilter(cat) {
+    setCurrentViewState({ name: "dashboard", filterCategory: cat || null, bingoId: null, editId: null });
     const filters = document.getElementById("category-filters");
     filters?.querySelectorAll(".chip").forEach(c => {
         c.classList.toggle("is-active", (c.dataset.cat || "") === (cat || ""));
     });
     const list = document.getElementById("bingo-list");
-    if (list) list.innerHTML = `<div class="loading-state" style="grid-column:1/-1"><div class="loading-spinner"></div></div>`;
+    if (list) {
+        if (!prefersReducedMotion()) {
+            list.classList.remove("ui-fade-enter", "ui-fade-enter-active");
+            list.classList.add("ui-fade-leave");
+            await wait(HEADER_TRANSITION_MS);
+        }
+        list.innerHTML = `<div class="loading-state" style="grid-column:1/-1"><div class="loading-spinner"></div></div>`;
+        animateElementIn(list);
+    }
     const bingos = await fetchBingos(cat);
     renderBingoCards(bingos);
 }
@@ -380,6 +589,7 @@ function renderBingoCards(bingos) {
                 <p>Cliquez sur "Nouveau bingo" pour commencer !</p>
             </div>
         `;
+        animateElementIn(el);
         initIcons();
         return;
     }
@@ -402,20 +612,32 @@ function renderBingoCards(bingos) {
             </div>
         </article>
     `).join("");
-    el.querySelectorAll(".js-play").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); renderPlayView(btn.dataset.id); }));
-    el.querySelectorAll(".js-edit").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); renderCreateView(btn.dataset.id); }));
+    el.querySelectorAll(".js-play").forEach(btn => btn.addEventListener("click", e => {
+        e.stopPropagation();
+        void navigateWithHeader(() => renderPlayView(btn.dataset.id));
+    }));
+    el.querySelectorAll(".js-edit").forEach(btn => btn.addEventListener("click", e => {
+        e.stopPropagation();
+        void navigateWithHeader(() => renderCreateView(btn.dataset.id));
+    }));
     el.querySelectorAll(".js-delete").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); handleDeleteBingo(btn.dataset.id); }));
     el.querySelectorAll(".bingo-card").forEach(card => {
-        card.addEventListener("click", () => renderPlayView(card.dataset.id));
+        card.addEventListener("click", () => {
+            void navigateWithHeader(() => renderPlayView(card.dataset.id));
+        });
         card.addEventListener("keydown", e => {
-            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); renderPlayView(card.dataset.id); }
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                void navigateWithHeader(() => renderPlayView(card.dataset.id));
+            }
         });
     });
+    animateElementIn(el);
     initIcons();
 }
 
 function buildMiniPreview(bingo) {
-    const size = Math.min(bingo.size, 3);
+    const size = Math.max(3, Math.min(Number(bingo.size) || 3, 5));
     const marked = bingo.markedCells || [];
     const cells = Array.from({ length: size * size }, (_, i) =>
         `<div class="mini-cell${marked[i] ? " marked" : ""}"></div>`
@@ -435,7 +657,7 @@ async function handleDeleteBingo(id) {
     try {
         await deleteDoc(bingoDocRef(id));
         showToast("Bingo supprimé.", "success");
-        renderDashboard();
+        await navigateWithHeader(() => renderDashboard());
     } catch {
         showToast("Erreur lors de la suppression.", "error");
     }
@@ -443,8 +665,8 @@ async function handleDeleteBingo(id) {
 
 
 async function renderCreateView(editId = null) {
-    const app = document.getElementById("app");
-    app.innerHTML = `
+    setCurrentViewState({ name: "create", editId: editId || null, bingoId: null, filterCategory: null });
+    await replaceAppMarkup(`
         <div class="view view-create">
             <header class="app-header">
                 <div class="header-left">
@@ -461,8 +683,10 @@ async function renderCreateView(editId = null) {
                 <div class="loading-state"><div class="loading-spinner"></div></div>
             </main>
         </div>
-    `;
-    document.getElementById("back-btn")?.addEventListener("click", () => renderDashboard());
+    `);
+    document.getElementById("back-btn")?.addEventListener("click", () => {
+        void navigateWithHeader(() => renderDashboard());
+    });
     initIcons();
 
     let existing = null;
@@ -472,12 +696,13 @@ async function renderCreateView(editId = null) {
             if (snap.exists()) existing = { id: snap.id, ...snap.data() };
         } catch {
             showToast("Erreur lors du chargement.", "error");
-            renderDashboard();
+            await renderDashboard();
             return;
         }
     }
 
-    const size = existing?.size || 3;
+    const draft = readCreateDraft(editId);
+    const size = draft?.size || existing?.size || 3;
     const main = document.querySelector(".view-create .create-body");
     if (!main) return;
 
@@ -490,7 +715,7 @@ async function renderCreateView(editId = null) {
                     <label for="f-title">Titre<span class="required-mark" aria-hidden="true">*</span></label>
                     <input type="text" id="f-title" name="f-title"
                                  placeholder="Ex: Nintendo Direct Juin 2026"
-                                 value="${existing?.title || ""}" required maxlength="100"
+                                 value="${draft?.title ?? existing?.title ?? ""}" required maxlength="100"
                                  aria-required="true" aria-describedby="hint-title">
                     <span id="hint-title" class="form-hint">100 caractères max.</span>
                 </div>
@@ -498,7 +723,7 @@ async function renderCreateView(editId = null) {
                     <label for="f-category">Catégorie</label>
                     <input type="text" id="f-category" name="f-category"
                                  placeholder="Ex: Nintendo, Gaming, Cinéma"
-                                 value="${existing?.category || ""}" maxlength="50"
+                                 value="${draft?.category ?? existing?.category ?? ""}" maxlength="50"
                                  aria-describedby="hint-cat">
                 </div>
             </div>
@@ -514,7 +739,7 @@ async function renderCreateView(editId = null) {
                 <span class="cells-label">Contenu des cases <span class="required-mark" aria-hidden="true">*</span></span>
                 <span class="form-hint">Toutes les cases sont obligatoires.</span>
                 <div id="cells-editor" class="cells-grid-editor cells-editor-${size}">
-                    ${buildCellInputs(size, existing?.cells)}
+                    ${buildCellInputs(size, draft?.cells || existing?.cells)}
                 </div>
             </div>
             <div class="form-actions">
@@ -525,8 +750,12 @@ async function renderCreateView(editId = null) {
             </div>
         </form>
     `;
+    animateElementIn(main.querySelector(".create-form") || main);
 
-    document.getElementById("cancel-btn")?.addEventListener("click", () => renderDashboard());
+    document.getElementById("cancel-btn")?.addEventListener("click", () => {
+        clearCreateDraft(editId);
+        void navigateWithHeader(() => renderDashboard());
+    });
     document.getElementById("f-size")?.addEventListener("change", e => {
         const newSize = parseInt(e.target.value);
         const editor = document.getElementById("cells-editor");
@@ -534,7 +763,10 @@ async function renderCreateView(editId = null) {
         const prevVals = [...editor.querySelectorAll("textarea")].map(t => t.value);
         editor.className = `cells-grid-editor cells-editor-${newSize}`;
         editor.innerHTML = buildCellInputs(newSize, prevVals);
+        saveCreateDraft(editId);
     });
+    document.getElementById("create-form")?.addEventListener("input", () => saveCreateDraft(editId));
+    document.getElementById("create-form")?.addEventListener("change", () => saveCreateDraft(editId));
     document.getElementById("create-form")?.addEventListener("submit", e => handleSaveBingo(e, editId));
     initIcons();
 }
@@ -603,7 +835,8 @@ async function handleSaveBingo(e, editId) {
             });
             showToast("Bingo créé avec succès !", "success");
         }
-        renderDashboard();
+        clearCreateDraft(editId);
+        await navigateWithHeader(() => renderDashboard());
     } catch {
         showToast("Erreur lors de la sauvegarde.", "error");
         if (submit) submit.disabled = false;
@@ -612,39 +845,38 @@ async function handleSaveBingo(e, editId) {
 
 
 async function renderPlayView(bingoId) {
+    setCurrentViewState({ name: "play", bingoId, editId: null, filterCategory: null });
     activeGameId = bingoId;
     hasShownWinModal = false;
-    const app = document.getElementById("app");
-    app.innerHTML = `
+    await replaceAppMarkup(`
         <div class="view view-play">
             <div class="loading-state" style="flex:1"><div class="loading-spinner"></div></div>
         </div>
-    `;
+    `, { animateIn: false });
 
     let bingo;
     try {
         const snap = await getDoc(bingoDocRef(bingoId));
         if (!snap.exists()) {
             showToast("Bingo introuvable.", "error");
-            renderDashboard();
+            await renderDashboard();
             return;
         }
         bingo = { id: snap.id, ...snap.data() };
     } catch {
         showToast("Erreur lors du chargement du bingo.", "error");
-        renderDashboard();
+        await renderDashboard();
         return;
     }
 
     liveMarkedCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
-    renderPlayBoard(bingo);
+    await renderPlayBoard(bingo);
 }
 
-function renderPlayBoard(bingo) {
-    const app = document.getElementById("app");
+async function renderPlayBoard(bingo) {
     const size = bingo.size;
 
-    app.innerHTML = `
+    await replaceAppMarkup(`
         <div class="view view-play">
             <header class="app-header">
                 <div class="header-left">
@@ -678,14 +910,14 @@ function renderPlayBoard(bingo) {
                 </div>
             </main>
         </div>
-    `;
+    `);
 
     document.getElementById("back-play-btn")?.addEventListener("click", () => {
         if (saveTimer) {
             clearTimeout(saveTimer);
             saveMarkedCells(activeGameId, [...liveMarkedCells]);
         }
-        renderDashboard();
+        void navigateWithHeader(() => renderDashboard());
     });
 
     document.getElementById("reset-btn")?.addEventListener("click", async () => {
@@ -698,7 +930,7 @@ function renderPlayBoard(bingo) {
         if (!confirmed) return;
         liveMarkedCells = new Array(bingo.size * bingo.size).fill(false);
         hasShownWinModal = false;
-        renderPlayBoard(bingo);
+        await renderPlayBoard(bingo);
         scheduleSave(activeGameId, [...liveMarkedCells]);
     });
 
@@ -758,11 +990,35 @@ async function saveMarkedCells(id, cells) {
 onAuthStateChanged(auth, user => {
     currentUser = user;
     if (user) {
-        renderDashboard();
+        void restoreAppState();
     } else {
-        renderLoginView();
+        void renderLoginView();
     }
 });
+
+async function restoreAppState() {
+    const storedState = readStoredJson(VIEW_STATE_STORAGE_KEY);
+
+    if (!storedState || storedState.name === "login") {
+        await renderDashboard();
+        return;
+    }
+
+    if (storedState.name === "create") {
+        await renderCreateView(storedState.editId || null);
+        restoreScrollPosition(storedState.scrollY || 0);
+        return;
+    }
+
+    if (storedState.name === "play" && storedState.bingoId) {
+        await renderPlayView(storedState.bingoId);
+        restoreScrollPosition(storedState.scrollY || 0);
+        return;
+    }
+
+    await renderDashboard(storedState.filterCategory || null);
+    restoreScrollPosition(storedState.scrollY || 0);
+}
 
 getRedirectResult(auth).catch(err => {
     if (err && err.code && err.code !== "auth/no-auth-event") {
@@ -774,3 +1030,9 @@ getRedirectResult(auth).catch(err => {
 
 initCookieBanner();
 updateYears();
+bindCrossPageHeaderTransitions();
+window.addEventListener("beforeunload", () => {
+    persistCurrentScrollPosition();
+    persistCreateDraftIfNeeded();
+});
+window.addEventListener("pagehide", persistCreateDraftIfNeeded);

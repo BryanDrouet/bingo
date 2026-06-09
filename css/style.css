@@ -194,6 +194,27 @@ button {
     box-shadow: 0 2px 10px rgba(0,0,0,0.55);
     border: none;
     gap: 12px;
+    transform-origin: top center;
+    transition: opacity 180ms ease, transform 180ms ease, filter 180ms ease;
+}
+
+.app-header.app-header--enter {
+    opacity: 0;
+    transform: translateY(-10px);
+    filter: blur(4px);
+}
+
+.app-header.app-header--enter.app-header--enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+}
+
+.app-header.app-header--leave {
+    opacity: 0;
+    transform: translateY(-10px);
+    filter: blur(4px);
+    pointer-events: none;
 }
 
 .header-left {
@@ -306,6 +327,29 @@ button {
     min-height: 100svh;
     display: flex;
     flex-direction: column;
+}
+
+.ui-fade-enter {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+}
+
+.ui-fade-enter.ui-fade-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+}
+
+.ui-fade-leave {
+    opacity: 0;
+    transform: translateY(-10px);
+    filter: blur(4px);
+    pointer-events: none;
+}
+
+.view > :not(.app-header) {
+    transition: opacity 180ms ease, transform 180ms ease, filter 180ms ease;
 }
 
 
@@ -460,6 +504,8 @@ button {
     width: 72px;
 }
 .mini-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.mini-grid-4 { grid-template-columns: repeat(4, 1fr); }
+.mini-grid-5 { grid-template-columns: repeat(5, 1fr); }
 
 .mini-cell {
     aspect-ratio: 1;
