@@ -1,1 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="/">
+  <title>Bingo Interactif</title>
+  <meta name="description" content="Application de bingo interactif avec connexion Google. Créez et gérez vos grilles de bingo personnalisées de 3x3 à 5x5 par catégorie.">
+  <meta name="keywords" content="bingo, interactif, jeu, grille, nintendo, catégorie, google, personnalisé">
+  <meta name="author" content="Bryan Drouet">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#CC0000">
+  <meta property="og:title" content="Bingo Interactif">
+  <meta property="og:description" content="Créez et jouez à des bingos interactifs personnalisés avec connexion Google.">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="fr_FR">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Bingo Interactif">
+  <meta name="twitter:description" content="Créez et jouez à des bingos interactifs personnalisés.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script>
+    const v = Date.now();
+    document.write(`<link rel="stylesheet" href="css/style.css?v=${v}">`);
+  </script>
+</head>
+<body>
+  <div id="app" aria-live="polite" aria-atomic="false"></div>
+
+  <div id="cookie-banner" class="cookie-banner hidden" role="dialog" aria-label="Consentement aux cookies" aria-modal="true" aria-describedby="cookie-desc">
+    <p id="cookie-desc">Ce site utilise des cookies essentiels pour l'authentification Google et la sauvegarde de vos données. <button type="button" id="privacy-link-cookie" class="link-btn">Politique de confidentialité</button></p>
+    <div class="cookie-actions">
+      <button type="button" id="cookie-decline" class="btn btn-outline-dark">Refuser</button>
+      <button type="button" id="cookie-accept" class="btn btn-primary">Accepter</button>
+    </div>
+  </div>
+
+  <div id="privacy-modal" class="modal hidden" role="dialog" aria-labelledby="privacy-modal-title" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="privacy-modal-title">Politique de confidentialité</h2>
+        <button type="button" id="close-privacy" class="icon-btn" aria-label="Fermer la politique de confidentialité">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <section>
+          <h3>Données collectées</h3>
+          <p>Lors de la connexion via Google, nous collectons votre nom, adresse e-mail et photo de profil à des fins d'authentification uniquement.</p>
+          <p>Vos grilles de bingo (titre, catégorie, taille, contenu et état des cases) sont stockées sur Firebase Firestore, associées à votre identifiant unique.</p>
+        </section>
+        <section>
+          <h3>Utilisation des données</h3>
+          <p>Vos données sont utilisées exclusivement pour le fonctionnement de l'application. Elles ne sont ni vendues, ni partagées avec des tiers.</p>
+        </section>
+        <section>
+          <h3>Vos droits (RGPD)</h3>
+          <p>Conformément au RGPD, vous disposez d'un droit d'accès, de rectification, de portabilité et de suppression de vos données. Pour exercer ces droits, contactez le responsable du traitement.</p>
+        </section>
+        <section>
+          <h3>Cookies</h3>
+          <p>Ce site utilise uniquement des cookies techniques essentiels au fonctionnement de l'authentification Firebase. Aucun cookie publicitaire ou de tracking n'est utilisé.</p>
+        </section>
+        <section>
+          <h3>Responsable du traitement</h3>
+          <p>Bryan Drouet — Campus Saint Gabriel, Saint Laurent sur Sèvre.</p>
+          <p>Mise à jour le <span id="privacy-date"></span>. &copy; <span class="dyn-year"></span> Bryan Drouet. Tous droits réservés.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="true"></div>
+
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+  <script>
+    document.write(`<script type="module" src="js/app.js?v=${Date.now()}"><\/script>`);
+  </script>
+</body>
+</html>
 
