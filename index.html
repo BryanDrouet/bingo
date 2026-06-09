@@ -63,20 +63,38 @@
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
     <script>
         window.__FIREBASE_CONFIG__ = window.__FIREBASE_CONFIG__ || {};
+
+        const cacheBust = Date.now();
         const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-        const firebaseConfigScript = document.createElement("script");
-        firebaseConfigScript.src = isLocalHost ? `js/firebase-config.local.js?v=${Date.now()}` : `js/firebase-config.js?v=${Date.now()}`;
-        if (isLocalHost) {
-            firebaseConfigScript.onerror = () => {
-                const fallbackScript = document.createElement("script");
-                fallbackScript.src = `js/firebase-config.js?v=${Date.now()}`;
-                document.head.appendChild(fallbackScript);
-            };
+
+        function loadScript(src, options = {}) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = src;
+                if (options.type) script.type = options.type;
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error(`Failed to load ${src}`));
+                document.head.appendChild(script);
+            });
         }
-        document.head.appendChild(firebaseConfigScript);
-    </script>
-    <script>
-        document.write(`<script type="module" src="js/app.js?v=${Date.now()}"><\/script>`);
+
+        async function bootstrapApp() {
+            if (isLocalHost) {
+                try {
+                    await loadScript(`js/firebase-config.local.js?v=${cacheBust}`);
+                } catch {
+                    await loadScript(`js/firebase-config.js?v=${cacheBust}`);
+                }
+            } else {
+                await loadScript(`js/firebase-config.js?v=${cacheBust}`);
+            }
+
+            await loadScript(`js/app.js?v=${cacheBust}`, { type: "module" });
+        }
+
+        bootstrapApp().catch(error => {
+            console.error(error);
+        });
     </script>
 </body>
 </html>
