@@ -45,6 +45,9 @@ function getMissingFirebaseKeys(config) {
 const missingFirebaseKeys = getMissingFirebaseKeys(FIREBASE_CONFIG);
 if (missingFirebaseKeys.length) {
     const app = document.getElementById("app");
+    const expectedConfigFile = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+        ? "js/firebase-config.local.js (ou fallback local js/firebase-config.js)"
+        : "js/firebase-config.js";
     if (app) {
         app.innerHTML = `
             <div class="view view-login">
@@ -58,7 +61,7 @@ if (missingFirebaseKeys.length) {
                 <div class="login-body">
                     <div class="login-card">
                         <h1>Configuration manquante</h1>
-                        <p>La configuration Firebase n'est pas chargee. Verifiez le fichier js/firebase-config.js.</p>
+                        <p>La configuration Firebase n'est pas chargee. Verifiez le fichier ${expectedConfigFile}.</p>
                     </div>
                 </div>
             </div>

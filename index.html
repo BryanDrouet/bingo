@@ -61,7 +61,20 @@
     </a>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
-    <script src="js/firebase-config.js"></script>
+    <script>
+        window.__FIREBASE_CONFIG__ = window.__FIREBASE_CONFIG__ || {};
+        const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+        const firebaseConfigScript = document.createElement("script");
+        firebaseConfigScript.src = isLocalHost ? `js/firebase-config.local.js?v=${Date.now()}` : `js/firebase-config.js?v=${Date.now()}`;
+        if (isLocalHost) {
+            firebaseConfigScript.onerror = () => {
+                const fallbackScript = document.createElement("script");
+                fallbackScript.src = `js/firebase-config.js?v=${Date.now()}`;
+                document.head.appendChild(fallbackScript);
+            };
+        }
+        document.head.appendChild(firebaseConfigScript);
+    </script>
     <script>
         document.write(`<script type="module" src="js/app.js?v=${Date.now()}"><\/script>`);
     </script>

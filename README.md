@@ -5,10 +5,10 @@ Ce projet utilise **Firebase Authentication** (Google) et **Cloud Firestore**.
 Important pour un projet open source:
 - La config Firebase web (apiKey, authDomain, etc.) n'est **pas un secret** technique cote navigateur.
 - La vraie protection se fait avec:
-  - les **regles Firestore**,
-  - les **domaines autorises** dans Firebase Auth,
-  - les **quotas / alertes budget**,
-  - optionnellement **App Check**.
+    - les **regles Firestore**,
+    - les **domaines autorises** dans Firebase Auth,
+    - les **quotas / alertes budget**,
+    - optionnellement **App Check**.
 
 ## 1. Architecture de donnees
 
@@ -19,13 +19,13 @@ Exemple de document Bingo:
 
 ```json
 {
-  "title": "Nintendo Direct 2026",
-  "category": "Nintendo",
-  "size": 3,
-  "cells": ["Case 1", "Case 2", "Case 3"],
-  "markedCells": [false, true, false],
-  "createdAt": "serverTimestamp",
-  "updatedAt": "serverTimestamp"
+    "title": "Nintendo Direct 2026",
+    "category": "Nintendo",
+    "size": 3,
+    "cells": ["Case 1", "Case 2", "Case 3"],
+    "markedCells": [false, true, false],
+    "createdAt": "serverTimestamp",
+    "updatedAt": "serverTimestamp"
 }
 ```
 
@@ -37,12 +37,12 @@ Contraintes appliquees dans l'app:
 ## 2. Requetes Firestore utilisees
 
 - Liste des bingos (ordre desc):
-  - `orderBy("createdAt", "desc")`
-  - `limit(50)`
+    - `orderBy("createdAt", "desc")`
+    - `limit(50)`
 - Filtre categorie:
-  - `where("category", "==", <cat>)`
-  - `orderBy("createdAt", "desc")`
-  - `limit(50)`
+    - `where("category", "==", <cat>)`
+    - `orderBy("createdAt", "desc")`
+    - `limit(50)`
 
 ## 3. Regles Firestore recommandees
 
@@ -51,24 +51,24 @@ Crée ou remplace les regles Firestore avec ce socle:
 ```txt
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
+    match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
+        function isSignedIn() {
+            return request.auth != null;
+        }
+
+        function isOwner(uid) {
+            return isSignedIn() && request.auth.uid == uid;
+        }
+
+        match /users/{uid} {
+            allow read, write: if false;
+
+            match /bingos/{bingoId} {
+                allow read, create, update, delete: if isOwner(uid);
+            }
+        }
     }
-
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
-    }
-
-    match /users/{uid} {
-      allow read, write: if false;
-
-      match /bingos/{bingoId} {
-        allow read, create, update, delete: if isOwner(uid);
-      }
-    }
-  }
 }
 ```
 
@@ -81,8 +81,8 @@ Selon la region/projet, la requete `where(category) + orderBy(createdAt)` peut d
 Index conseille:
 - Collection: `users/{uid}/bingos`
 - Champs:
-  - `category` ascendant
-  - `createdAt` descendant
+    - `category` ascendant
+    - `createdAt` descendant
 
 Tu peux aussi laisser Firebase proposer automatiquement le lien de creation d'index au premier echec de requete.
 
@@ -119,9 +119,9 @@ Secrets a definir:
 Dans Firebase Console:
 1. Authentication > Sign-in method > Google: active.
 2. Authentication > Settings > Authorized domains:
-   - ton domaine custom (ex: `bingo-perso.bryan.ovh`)
-   - domaine GitHub Pages si utilise
-   - localhost en dev
+     - ton domaine custom (ex: `bingo-perso.bryan.ovh`)
+     - domaine GitHub Pages si utilise
+     - localhost en dev
 
 ## 8. Securite et cout (important)
 
