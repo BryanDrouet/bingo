@@ -1,4 +1,3 @@
-// Copy this file to js/firebase-config.js for local development.
 window.__FIREBASE_CONFIG__ = {
     apiKey: "your_api_key",
     authDomain: "your_project.firebaseapp.com",

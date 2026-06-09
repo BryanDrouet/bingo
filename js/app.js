@@ -232,7 +232,7 @@ async function fetchAllCategories() {
     }
 }
 
-/* ---- LOGIN VIEW ---- */
+
 function renderLoginView() {
     const app = document.getElementById("app");
     app.innerHTML = `
@@ -258,10 +258,6 @@ function renderLoginView() {
                         </svg>
                         Se connecter avec Google
                     </button>
-                    <div class="login-footer-links" aria-label="Liens légaux">
-                        <a href="/mentions-legales/" class="link">Mentions légales</a>
-                        <a href="/politique-confidentialite/" class="link">Politique de confidentialité</a>
-                    </div>
                 </div>
             </div>
         </div>
@@ -315,7 +311,7 @@ async function handleSignOut() {
     }
 }
 
-/* ---- DASHBOARD VIEW ---- */
+
 async function renderDashboard(filterCategory = null) {
     const app = document.getElementById("app");
     const avatarHtml = currentUser.photoURL
@@ -458,7 +454,7 @@ async function handleDeleteBingo(id) {
     }
 }
 
-/* ---- CREATE / EDIT VIEW ---- */
+
 async function renderCreateView(editId = null) {
     const app = document.getElementById("app");
     app.innerHTML = `
@@ -627,7 +623,7 @@ async function handleSaveBingo(e, editId) {
     }
 }
 
-/* ---- PLAY VIEW ---- */
+
 async function renderPlayView(bingoId) {
     activeGameId = bingoId;
     hasShownWinModal = false;
@@ -771,7 +767,7 @@ async function saveMarkedCells(id, cells) {
     }
 }
 
-/* ---- AUTH ---- */
+
 onAuthStateChanged(auth, user => {
     currentUser = user;
     if (user) {
@@ -788,6 +784,6 @@ getRedirectResult(auth).catch(err => {
     }
 });
 
-/* ---- INIT ---- */
+
 initCookieBanner();
 updateYears();

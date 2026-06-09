@@ -74,9 +74,7 @@ button {
     display: none !important;
 }
 
-/* ========================
-IMAGES (system)
-======================== */
+
 .img { display: block; max-width: 100%; height: auto; }
 .img--avatar {
     width: 36px;
@@ -90,9 +88,7 @@ IMAGES (system)
 .img--icon { width: 22px; height: 22px; flex-shrink: 0; }
 .img--icon-lg { width: 32px; height: 32px; flex-shrink: 0; }
 
-/* ========================
-LINKS (system)
-======================== */
+
 .link {
     background: none;
     border: none;
@@ -109,9 +105,7 @@ LINKS (system)
 .link--muted { color: rgba(255,255,255,0.7); }
 .link--muted:hover { color: var(--white); }
 
-/* ========================
-BUTTONS (system)
-======================== */
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -142,7 +136,7 @@ BUTTONS (system)
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-/* Variants */
+
 .btn--primary { border: 2px solid rgba(255, 255, 255, 0.65) !important; background: var(--red); color: var(--white); border-color: var(--red); }
 .btn--primary:hover:not(:disabled) { background: var(--red-dark); border-color: var(--red-dark); }
 
@@ -161,11 +155,11 @@ BUTTONS (system)
 .btn--dark { background: var(--black-light); color: var(--white); border-color: rgba(255,255,255,0.25); }
 .btn--dark:hover:not(:disabled) { background: var(--red); border-color: var(--red); }
 
-/* Sizes */
+
 .btn--sm { height: 36px; padding: 0 14px; font-size: 0.875rem; gap: 6px; }
 .btn--lg { height: 52px; padding: 0 26px; font-size: 1rem; gap: 12px; }
 
-/* Shapes (composable) */
+
 .btn--icon { width: 44px; padding: 0; gap: 0; }
 .btn--sm.btn--icon { width: 36px; }
 .btn--lg.btn--icon { width: 52px; }
@@ -173,7 +167,7 @@ BUTTONS (system)
 .btn--round { border-radius: 999px; }
 .btn--block { width: 100%; }
 
-/* Position helper */
+
 .btn--fab {
     position: fixed;
     bottom: 20px;
@@ -187,9 +181,7 @@ BUTTONS (system)
     .btn--fab { bottom: 14px; left: 14px; }
 }
 
-/* ========================
-HEADER
-======================== */
+
 .app-header {
     background: var(--black-light);
     height: var(--header-h);
@@ -309,16 +301,14 @@ HEADER
     .user-display-name { display: block; }
 }
 
-/* ========================
-VIEWS
-======================== */
+
 .view {
     min-height: 100svh;
     display: flex;
     flex-direction: column;
 }
 
-/* LOGIN */
+
 .view-login .login-body {
     flex: 1;
     display: flex;
@@ -346,16 +336,7 @@ VIEWS
 .login-card h1 { font-size: 2rem; font-weight: 900; }
 .login-card p { color: var(--gray-500); line-height: 1.6; }
 
-.login-footer-links {
-    display: flex;
-    gap: 16px;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    color: rgba(255,255,255,0.65);
-}
 
-/* DASHBOARD */
 .view-dashboard .dashboard-body {
     flex: 1;
     padding: 24px 16px 40px;
@@ -411,7 +392,7 @@ VIEWS
     gap: 20px;
 }
 
-/* BINGO CARD */
+
 .bingo-card {
     background: var(--white);
     border-radius: var(--radius-lg);
@@ -501,7 +482,7 @@ VIEWS
     border: none !important;
 }
 
-/* EMPTY STATE */
+
 .empty-state {
     grid-column: 1 / -1;
     display: flex;
@@ -517,7 +498,7 @@ VIEWS
 .empty-state p { font-size: 1.125rem; font-weight: 600; opacity: 0.9; }
 .empty-state p:last-child { opacity: 0.65; font-size: 1rem; }
 
-/* CREATE VIEW */
+
 .view-create .create-body {
     flex: 1;
     padding: 24px 16px 48px;
@@ -628,7 +609,7 @@ VIEWS
     border-top: 2px solid var(--gray-200);
 }
 
-/* PLAY VIEW */
+
 .view-play .play-body {
     flex: 1;
     display: flex;
@@ -699,7 +680,7 @@ VIEWS
 
 .bingo-cell span { display: block; max-width: 100%; }
 
-/* WIN BANNER */
+
 .win-banner {
     display: flex;
     align-items: center;
@@ -720,7 +701,7 @@ VIEWS
     to { transform: scale(1.04); }
 }
 
-/* LOADING */
+
 .loading-state {
     display: flex;
     align-items: center;
@@ -740,7 +721,7 @@ VIEWS
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* COOKIE BANNER */
+
 .cookie-banner {
     position: fixed;
     bottom: 0;
@@ -761,7 +742,7 @@ VIEWS
 .cookie-banner p { font-size: 0.875rem; flex: 1; min-width: 200px; line-height: 1.55; }
 .cookie-actions { display: flex; gap: 10px; flex-shrink: 0; flex-wrap: wrap; }
 
-/* MODAL */
+
 .modal {
     position: fixed;
     inset: 0;
@@ -834,7 +815,7 @@ VIEWS
     to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* TOAST */
+
 .toast-container {
     position: fixed;
     bottom: 80px;
