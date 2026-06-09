@@ -26,6 +26,15 @@ import {
     limit
 } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
+const DEFAULT_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyC6wMdN5gdEmwKeGmNRSB_56iAsg9EC8r0",
+    authDomain: "bingo-37e53.firebaseapp.com",
+    projectId: "bingo-37e53",
+    storageBucket: "bingo-37e53.firebasestorage.app",
+    messagingSenderId: "497573754040",
+    appId: "1:497573754040:web:2e0b3f7d7e87eef9fd304d"
+};
+
 const FIREBASE_CONFIG = window.__FIREBASE_CONFIG__;
 
 const REQUIRED_FIREBASE_KEYS = [
@@ -42,7 +51,9 @@ function getMissingFirebaseKeys(config) {
     return REQUIRED_FIREBASE_KEYS.filter(k => !config[k]);
 }
 
-const missingFirebaseKeys = getMissingFirebaseKeys(FIREBASE_CONFIG);
+let missingFirebaseKeys = getMissingFirebaseKeys(FIREBASE_CONFIG);
+const EFFECTIVE_FIREBASE_CONFIG = missingFirebaseKeys.length ? DEFAULT_FIREBASE_CONFIG : FIREBASE_CONFIG;
+missingFirebaseKeys = getMissingFirebaseKeys(EFFECTIVE_FIREBASE_CONFIG);
 if (missingFirebaseKeys.length) {
     const app = document.getElementById("app");
     if (app) {
@@ -69,7 +80,7 @@ if (missingFirebaseKeys.length) {
 
 const MAX_BINGOS = 50;
 
-const firebaseApp = initializeApp(FIREBASE_CONFIG);
+const firebaseApp = initializeApp(EFFECTIVE_FIREBASE_CONFIG);
 const auth = getAuth(firebaseApp);
 const db = initializeFirestore(firebaseApp, {
     experimentalAutoDetectLongPolling: true,

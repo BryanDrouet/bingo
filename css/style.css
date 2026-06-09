@@ -496,6 +496,11 @@ VIEWS
     margin-top: auto;
 }
 
+.bingo-card-actions button,
+.form-actions button {
+    border: none !important;
+}
+
 /* EMPTY STATE */
 .empty-state {
     grid-column: 1 / -1;
