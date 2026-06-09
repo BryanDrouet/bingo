@@ -86,7 +86,10 @@ let saveTimer = null;
 let activeGameId = null;
 let liveMarkedCells = [];
 let hasShownWinModal = false;
+let hasShownFinalWinModal = false;
 let currentViewState = null;
+let dashboardAllBingos = [];
+let dashboardSearchDebounceTimer = null;
 const HEADER_TRANSITION_MS = 180;
 const VIEW_STATE_STORAGE_KEY = "bingo-view-state";
 const CREATE_DRAFT_STORAGE_KEY = "bingo-create-draft";
@@ -160,14 +163,22 @@ function readCreateDraft(editId) {
 function saveCreateDraft(editId) {
     const size = parseInt(document.getElementById("f-size")?.value, 10) || 3;
     const cells = Array.from({ length: size * size }, (_, i) => document.getElementById(`cell-${i}`)?.value || "");
+    const categoryValue = getCreateCategoryValue();
 
     writeStoredJson(CREATE_DRAFT_STORAGE_KEY, {
         editId: editId || null,
         title: document.getElementById("f-title")?.value || "",
-        category: document.getElementById("f-category")?.value || "",
+        category: categoryValue || "",
         size,
         cells
     });
+}
+
+function getCreateCategoryValue() {
+    const select = document.getElementById("f-category-select");
+    if (!select) return document.getElementById("f-category")?.value || "";
+    if (select.value !== "__new__") return select.value || "";
+    return document.getElementById("f-category-new")?.value || "";
 }
 
 function clearCreateDraft(editId = null) {
@@ -419,6 +430,93 @@ async function fetchAllCategories() {
     }
 }
 
+function buildDashboardRegex(searchQuery) {
+    const query = (searchQuery || "").trim();
+    if (!query) return { regex: null, error: null };
+
+    const slashSyntax = query.match(/^\/(.*)\/([a-z]*)$/i);
+    try {
+        if (slashSyntax) {
+            const pattern = slashSyntax[1];
+            const rawFlags = slashSyntax[2] || "";
+            const safeFlags = rawFlags.replace(/[gy]/g, "");
+            return { regex: new RegExp(pattern, safeFlags), error: null };
+        }
+        return { regex: new RegExp(query, "i"), error: null };
+    } catch {
+        return { regex: null, error: "Regex invalide" };
+    }
+}
+
+function getBingoSearchCorpus(bingo) {
+    const title = bingo?.title || "";
+    const category = bingo?.category || "";
+    const cells = Array.isArray(bingo?.cells) ? bingo.cells.join("\n") : "";
+    return `${category}\n${title}\n${cells}`;
+}
+
+function filterDashboardBingos(filterCategory = null, searchQuery = "") {
+    const byCategory = filterCategory
+        ? dashboardAllBingos.filter(b => (b.category || "") === filterCategory)
+        : [...dashboardAllBingos];
+
+    const { regex, error } = buildDashboardRegex(searchQuery);
+    if (!regex || error) {
+        return { results: byCategory, error };
+    }
+
+    return {
+        results: byCategory.filter(b => regex.test(getBingoSearchCorpus(b))),
+        error: null
+    };
+}
+
+function updateDashboardSearchFeedback(error) {
+    const input = document.getElementById("dashboard-search");
+    if (!input) return;
+
+    if (error) {
+        input.classList.add("is-invalid");
+        input.setAttribute("aria-invalid", "true");
+        input.setAttribute("title", "Regex invalide");
+        return;
+    }
+
+    input.classList.remove("is-invalid");
+    input.removeAttribute("aria-invalid");
+    input.removeAttribute("title");
+}
+
+function applyDashboardFilters(filterCategory = null, searchQuery = "") {
+    const { results, error } = filterDashboardBingos(filterCategory, searchQuery);
+    updateDashboardSearchFeedback(error);
+    renderBingoCards(results, { filterCategory, searchQuery, regexError: error });
+}
+
+function handleDashboardSearchInput() {
+    const input = document.getElementById("dashboard-search");
+    if (!input) return;
+
+    const searchQuery = input.value || "";
+    const activeCategory =
+        document.querySelector("#category-filters .chip.is-active")?.dataset.cat
+        ?? document.getElementById("category-filter-select")?.value
+        ?? null;
+
+    setCurrentViewState({
+        name: "dashboard",
+        filterCategory: activeCategory || null,
+        searchQuery,
+        bingoId: null,
+        editId: null
+    });
+
+    if (dashboardSearchDebounceTimer) clearTimeout(dashboardSearchDebounceTimer);
+    dashboardSearchDebounceTimer = window.setTimeout(() => {
+        applyDashboardFilters(activeCategory || null, searchQuery);
+    }, 120);
+}
+
 
 async function renderLoginView() {
     setCurrentViewState({ name: "login" });
@@ -496,8 +594,8 @@ async function handleSignOut() {
 }
 
 
-async function renderDashboard(filterCategory = null) {
-    setCurrentViewState({ name: "dashboard", filterCategory: filterCategory || null, bingoId: null, editId: null });
+async function renderDashboard(filterCategory = null, searchQuery = "") {
+    setCurrentViewState({ name: "dashboard", filterCategory: filterCategory || null, searchQuery: searchQuery || "", bingoId: null, editId: null });
     const avatarHtml = currentUser.photoURL
         ? `<img src="${currentUser.photoURL}" alt="Photo de profil de ${currentUser.displayName || "utilisateur"}" class="img img--avatar">`
         : "";
@@ -521,6 +619,15 @@ async function renderDashboard(filterCategory = null) {
             <main class="dashboard-body">
                 <div class="dashboard-toolbar">
                     <div class="category-filters" id="category-filters" role="group" aria-label="Filtrer par catégorie"></div>
+                    <div class="category-select-wrap">
+                        <label for="category-filter-select" class="sr-only">Filtrer par catégorie</label>
+                        <select id="category-filter-select" class="category-select" aria-label="Filtrer par catégorie"></select>
+                    </div>
+                    <div class="dashboard-search" role="search">
+                        <label for="dashboard-search" class="sr-only">Rechercher dans les bingos</label>
+                        <input type="text" id="dashboard-search" class="dashboard-search-input" value="${searchQuery || ""}" placeholder="Rechercher dans les titres, categories et contenus" autocomplete="off" spellcheck="false">
+                        <button type="button" id="clear-dashboard-search" class="btn btn--ghost-light btn--sm">Effacer</button>
+                    </div>
                     <button type="button" id="create-bingo-btn" class="btn btn--primary">
                         <i data-lucide="plus" aria-hidden="true"></i>
                         Nouveau bingo
@@ -536,22 +643,42 @@ async function renderDashboard(filterCategory = null) {
     document.getElementById("create-bingo-btn")?.addEventListener("click", () => {
         void navigateWithHeader(() => renderCreateView());
     });
+    document.getElementById("dashboard-search")?.addEventListener("input", handleDashboardSearchInput);
+    document.getElementById("clear-dashboard-search")?.addEventListener("click", () => {
+        const input = document.getElementById("dashboard-search");
+        if (!input) return;
+        input.value = "";
+        handleDashboardSearchInput();
+        input.focus();
+    });
     updateYears();
     initIcons();
 
-    const [bingos, categories] = await Promise.all([fetchBingos(filterCategory), fetchAllCategories()]);
+    dashboardAllBingos = await fetchBingos();
+    const categories = [...new Set(dashboardAllBingos.map(b => b.category).filter(Boolean))];
     renderCategoryFilters(categories, filterCategory);
-    renderBingoCards(bingos);
+    applyDashboardFilters(filterCategory, searchQuery);
 }
 
 function renderCategoryFilters(categories, active) {
     const el = document.getElementById("category-filters");
+    const select = document.getElementById("category-filter-select");
     if (!el) return;
     const items = [
         `<button type="button" class="chip ${!active ? "is-active" : ""}" data-cat="">Tous</button>`,
         ...categories.map(c => `<button type="button" class="chip ${active === c ? "is-active" : ""}" data-cat="${c}">${c}</button>`)
     ];
     el.innerHTML = items.join("");
+
+    if (select) {
+        const options = [
+            `<option value="" ${!active ? "selected" : ""}>Toutes les catégories</option>`,
+            ...categories.map(c => `<option value="${c}" ${active === c ? "selected" : ""}>${c}</option>`)
+        ];
+        select.innerHTML = options.join("");
+        select.onchange = () => changeFilter(select.value || null);
+    }
+
     animateElementIn(el);
     el.querySelectorAll(".chip").forEach(btn => {
         btn.addEventListener("click", () => changeFilter(btn.dataset.cat || null));
@@ -559,11 +686,16 @@ function renderCategoryFilters(categories, active) {
 }
 
 async function changeFilter(cat) {
-    setCurrentViewState({ name: "dashboard", filterCategory: cat || null, bingoId: null, editId: null });
+    const searchQuery = document.getElementById("dashboard-search")?.value || "";
+    setCurrentViewState({ name: "dashboard", filterCategory: cat || null, searchQuery, bingoId: null, editId: null });
     const filters = document.getElementById("category-filters");
     filters?.querySelectorAll(".chip").forEach(c => {
         c.classList.toggle("is-active", (c.dataset.cat || "") === (cat || ""));
     });
+    const select = document.getElementById("category-filter-select");
+    if (select && select.value !== (cat || "")) {
+        select.value = cat || "";
+    }
     const list = document.getElementById("bingo-list");
     if (list) {
         if (!prefersReducedMotion()) {
@@ -574,21 +706,57 @@ async function changeFilter(cat) {
         list.innerHTML = `<div class="loading-state" style="grid-column:1/-1"><div class="loading-spinner"></div></div>`;
         animateElementIn(list);
     }
-    const bingos = await fetchBingos(cat);
-    renderBingoCards(bingos);
+    await wait(120);
+    applyDashboardFilters(cat, searchQuery);
 }
 
-function renderBingoCards(bingos) {
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", regexError = null } = {}) {
     const el = document.getElementById("bingo-list");
     if (!el) return;
     if (!bingos.length) {
-        el.innerHTML = `
-            <div class="empty-state">
-                <i data-lucide="layout-grid" aria-hidden="true"></i>
-                <p>Aucun bingo pour le moment.</p>
-                <p>Cliquez sur "Nouveau bingo" pour commencer !</p>
-            </div>
-        `;
+        const query = (searchQuery || "").trim();
+        if (query && !regexError) {
+            el.innerHTML = `
+                <div class="empty-state">
+                    <i data-lucide="search-x" aria-hidden="true"></i>
+                    <p>Aucun resultat pour "${escapeHtml(query)}".</p>
+                    <p>La recherche couvre les titres, les categories et le contenu des cases.</p>
+                    <button type="button" id="empty-clear-search" class="btn btn--neutral btn--sm">Effacer la recherche</button>
+                </div>
+            `;
+            document.getElementById("empty-clear-search")?.addEventListener("click", () => {
+                const input = document.getElementById("dashboard-search");
+                if (!input) return;
+                input.value = "";
+                handleDashboardSearchInput();
+                input.focus();
+            });
+        } else if (filterCategory) {
+            el.innerHTML = `
+                <div class="empty-state">
+                    <i data-lucide="layout-grid" aria-hidden="true"></i>
+                    <p>Aucun bingo dans la categorie "${escapeHtml(filterCategory)}".</p>
+                    <p>Essayez une autre categorie ou creez un nouveau bingo.</p>
+                </div>
+            `;
+        } else {
+            el.innerHTML = `
+                <div class="empty-state">
+                    <i data-lucide="layout-grid" aria-hidden="true"></i>
+                    <p>Aucun bingo pour le moment.</p>
+                    <p>Cliquez sur "Nouveau bingo" pour commencer !</p>
+                </div>
+            `;
+        }
         animateElementIn(el);
         initIcons();
         return;
@@ -702,6 +870,10 @@ async function renderCreateView(editId = null) {
     }
 
     const draft = readCreateDraft(editId);
+    const categories = await fetchAllCategories();
+    const selectedCategory = draft?.category ?? existing?.category ?? "";
+    const hasCustomCategory = !!selectedCategory && !categories.includes(selectedCategory);
+    const selectedCategoryValue = hasCustomCategory ? "__new__" : selectedCategory;
     const size = draft?.size || existing?.size || 3;
     const main = document.querySelector(".view-create .create-body");
     if (!main) return;
@@ -720,10 +892,16 @@ async function renderCreateView(editId = null) {
                     <span id="hint-title" class="form-hint">100 caractères max.</span>
                 </div>
                 <div class="form-group">
-                    <label for="f-category">Catégorie</label>
-                    <input type="text" id="f-category" name="f-category"
+                    <label for="f-category-select">Catégorie</label>
+                    <select id="f-category-select" name="f-category-select" aria-describedby="hint-cat">
+                        <option value="">Sans catégorie</option>
+                        ${categories.map(c => `<option value="${escapeHtml(c)}" ${selectedCategoryValue === c ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+                        <option value="__new__" ${selectedCategoryValue === "__new__" ? "selected" : ""}>Ajouter une catégorie...</option>
+                    </select>
+                    <input type="text" id="f-category-new" name="f-category-new"
+                                 class="${selectedCategoryValue === "__new__" ? "" : "hidden"}"
                                  placeholder="Ex: Nintendo, Gaming, Cinéma"
-                                 value="${draft?.category ?? existing?.category ?? ""}" maxlength="50"
+                                 value="${hasCustomCategory ? selectedCategory : ""}" maxlength="50"
                                  aria-describedby="hint-cat">
                 </div>
             </div>
@@ -765,6 +943,14 @@ async function renderCreateView(editId = null) {
         editor.innerHTML = buildCellInputs(newSize, prevVals);
         saveCreateDraft(editId);
     });
+    document.getElementById("f-category-select")?.addEventListener("change", e => {
+        const customInput = document.getElementById("f-category-new");
+        if (!customInput) return;
+        const isCustom = e.target.value === "__new__";
+        customInput.classList.toggle("hidden", !isCustom);
+        if (isCustom) customInput.focus();
+        saveCreateDraft(editId);
+    });
     document.getElementById("create-form")?.addEventListener("input", () => saveCreateDraft(editId));
     document.getElementById("create-form")?.addEventListener("change", () => saveCreateDraft(editId));
     document.getElementById("create-form")?.addEventListener("submit", e => handleSaveBingo(e, editId));
@@ -784,7 +970,7 @@ function buildCellInputs(size, values) {
 async function handleSaveBingo(e, editId) {
     e.preventDefault();
     const title = document.getElementById("f-title")?.value.trim();
-    const category = document.getElementById("f-category")?.value.trim() || "Sans catégorie";
+    const category = getCreateCategoryValue().trim() || "Sans catégorie";
     const size = parseInt(document.getElementById("f-size")?.value);
 
     if (!title) {
@@ -848,6 +1034,7 @@ async function renderPlayView(bingoId) {
     setCurrentViewState({ name: "play", bingoId, editId: null, filterCategory: null });
     activeGameId = bingoId;
     hasShownWinModal = false;
+    hasShownFinalWinModal = false;
     await replaceAppMarkup(`
         <div class="view view-play">
             <div class="loading-state" style="flex:1"><div class="loading-spinner"></div></div>
@@ -930,6 +1117,7 @@ async function renderPlayBoard(bingo) {
         if (!confirmed) return;
         liveMarkedCells = new Array(bingo.size * bingo.size).fill(false);
         hasShownWinModal = false;
+        hasShownFinalWinModal = false;
         await renderPlayBoard(bingo);
         scheduleSave(activeGameId, [...liveMarkedCells]);
     });
@@ -943,7 +1131,18 @@ async function renderPlayBoard(bingo) {
             cell.setAttribute("aria-label", `${bingo.cells[i] || "Case vide"}, ${liveMarkedCells[i] ? "cochée" : "non cochée"}`);
 
             const isWinner = checkBingoWin(liveMarkedCells, bingo.size);
-            if (isWinner && !hasShownWinModal) {
+            const isFullGridWinner = checkFullGridWin(liveMarkedCells);
+
+            if (isFullGridWinner && !hasShownFinalWinModal) {
+                hasShownFinalWinModal = true;
+                hasShownWinModal = true;
+                showAppModal({
+                    title: "Bingo final !",
+                    message: "Incroyable, toute la grille est complete.",
+                    confirmText: "Continuer",
+                    hideCancel: true
+                });
+            } else if (isWinner && !hasShownWinModal) {
                 hasShownWinModal = true;
                 showAppModal({
                     title: "Bingo !",
@@ -970,6 +1169,10 @@ function checkBingoWin(marked, size) {
     if (Array.from({ length: size }, (_, i) => marked[i * size + i]).every(Boolean)) return true;
     if (Array.from({ length: size }, (_, i) => marked[i * size + (size - 1 - i)]).every(Boolean)) return true;
     return false;
+}
+
+function checkFullGridWin(marked) {
+    return Array.isArray(marked) && marked.length > 0 && marked.every(Boolean);
 }
 
 function scheduleSave(id, cells) {
@@ -1016,7 +1219,7 @@ async function restoreAppState() {
         return;
     }
 
-    await renderDashboard(storedState.filterCategory || null);
+    await renderDashboard(storedState.filterCategory || null, storedState.searchQuery || "");
     restoreScrollPosition(storedState.scrollY || 0);
 }
 

@@ -395,15 +395,98 @@ button {
 
 .dashboard-toolbar {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 24px;
     flex-wrap: wrap;
 }
 
-.category-filters {
+.dashboard-search {
     display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 360px;
+    width: 100%;
+    min-width: min(100%, 360px);
+}
+
+.dashboard-search-input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 2px solid rgba(255,255,255,0.55);
+    background: rgba(0,0,0,0.18);
+    color: var(--white);
+    font-family: var(--font);
+    font-size: 0.875rem;
+    text-overflow: ellipsis;
+}
+
+.dashboard-search-input::placeholder {
+    color: rgba(255,255,255,0.72);
+}
+
+.dashboard-search-input:focus {
+    outline: none;
+    border-color: var(--white);
+}
+
+.dashboard-search-input.is-invalid {
+    border-color: #fca5a5;
+}
+
+#create-bingo-btn {
+    flex-shrink: 0;
+}
+
+.category-select-wrap {
+    display: block;
+    width: 100%;
+}
+
+.category-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 100%;
+    height: 36px;
+    padding: 0 36px 0 12px;
+    border-radius: 999px;
+    border: 2px solid rgba(255,255,255,0.65);
+    background: rgba(0,0,0,0.18);
+    background-image:
+        linear-gradient(45deg, transparent 50%, rgba(255,255,255,0.95) 50%),
+        linear-gradient(135deg, rgba(255,255,255,0.95) 50%, transparent 50%);
+    background-position:
+        calc(100% - 18px) 14px,
+        calc(100% - 12px) 14px;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    color: var(--white);
+    font-family: var(--font);
+    font-size: 0.875rem;
+}
+
+.category-select:focus {
+    outline: none;
+    border-color: var(--white);
+}
+
+.category-select option {
+    background: #1f1f1f;
+    color: #f5f5f5;
+}
+
+.category-select option:checked {
+    background: #2a2a2a;
+    color: #ffffff;
+}
+
+.category-filters {
+    display: none;
     gap: 8px;
     flex-wrap: wrap;
     flex: 1;
@@ -434,6 +517,86 @@ button {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
     gap: 20px;
+}
+
+@media (max-width: 920px) {
+    .view-dashboard .dashboard-body {
+        padding: 20px 12px 36px;
+    }
+
+    .dashboard-toolbar {
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .category-select-wrap {
+        order: 1;
+        width: 100%;
+        display: block;
+    }
+
+    .category-filters {
+        display: none;
+    }
+
+    .dashboard-search {
+        order: 2;
+        width: 100%;
+        min-width: 0;
+    }
+
+    #create-bingo-btn {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 620px) {
+    .app-header {
+        padding: 0 10px;
+        gap: 8px;
+    }
+
+    .header-title-group {
+        gap: 6px;
+    }
+
+    .header-main-text {
+        max-width: 34vw;
+    }
+
+    .header-tag {
+        padding: 0 10px;
+        font-size: 0.74rem;
+    }
+
+    .dashboard-search {
+        gap: 6px;
+    }
+
+    #clear-dashboard-search {
+        padding: 0 10px;
+    }
+
+    .bingo-cards-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .bingo-card {
+        padding: 14px;
+        gap: 10px;
+    }
+
+    .bingo-card-actions {
+        gap: 6px;
+        flex-wrap: nowrap;
+    }
+
+    .bingo-card-actions .js-play {
+        padding: 0 12px;
+    }
 }
 
 
@@ -523,6 +686,11 @@ button {
     margin-top: auto;
 }
 
+.bingo-card-actions .js-play {
+    width: auto;
+    flex: 0 0 auto;
+}
+
 .bingo-card-actions button,
 .form-actions button {
     border: none !important;
@@ -608,6 +776,31 @@ button {
     background: var(--white);
     transition: border-color var(--dur);
     width: 100%;
+}
+
+.form-group select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    padding-right: 36px;
+    background-image:
+        linear-gradient(45deg, transparent 50%, rgba(17,17,17,0.85) 50%),
+        linear-gradient(135deg, rgba(17,17,17,0.85) 50%, transparent 50%);
+    background-position:
+        calc(100% - 18px) 14px,
+        calc(100% - 12px) 14px;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+}
+
+.form-group select option {
+    background: #ffffff;
+    color: #111111;
+}
+
+.form-group select option:checked {
+    background: #f4f4f5;
+    color: #111111;
 }
 .form-group input:focus,
 .form-group select:focus,
