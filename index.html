@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <base href="/">
     <title>Bingo Interactif</title>
-    <meta name="description" content="Application de bingo interactif avec connexion Google. Créez et gérez vos grilles de bingo personnalisées de 3x3 à 5x5 par catégorie.">
-    <meta name="keywords" content="bingo, interactif, jeu, grille, nintendo, catégorie, google, personnalisé">
+    <meta name="description" content="Application de bingo interactif. Créez et gérez vos grilles de bingo personnalisées de 3x3 à 5x5.">
+    <meta name="keywords" content="bingo, interactif, jeu, grille, nintendo, catégorie, personnalisé">
     <meta name="author" content="Bryan Drouet">
     <meta name="robots" content="index, follow">
     <meta name="theme-color" content="#CC0000">
     <meta property="og:title" content="Bingo Interactif">
-    <meta property="og:description" content="Créez et jouez à des bingos interactifs personnalisés avec connexion Google.">
+    <meta property="og:description" content="Créez et jouez à des bingos interactifs personnalisés.">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="fr_FR">
     <meta name="twitter:card" content="summary">
@@ -29,54 +29,39 @@
     <div id="app" aria-live="polite" aria-atomic="false"></div>
 
     <div id="cookie-banner" class="cookie-banner hidden" role="dialog" aria-label="Consentement aux cookies" aria-modal="true" aria-describedby="cookie-desc">
-        <p id="cookie-desc">Ce site utilise des cookies essentiels pour l'authentification Google et la sauvegarde de vos données. <button type="button" id="privacy-link-cookie" class="link link--muted">Politique de confidentialité</button></p>
+        <p id="cookie-desc">Ce site utilise des cookies essentiels pour l'authentification Google et la sauvegarde de vos données. <a href="/politique-confidentialite/" class="link link--muted">Politique de confidentialité</a></p>
         <div class="cookie-actions">
             <button type="button" id="cookie-decline" class="btn btn--ghost-light">Refuser</button>
             <button type="button" id="cookie-accept" class="btn btn--primary">Accepter</button>
         </div>
     </div>
 
-    <div id="privacy-modal" class="modal hidden" role="dialog" aria-labelledby="privacy-modal-title" aria-modal="true">
-        <div class="modal-content">
+    <div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="true"></div>
+
+    <div id="app-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="app-modal-title" aria-describedby="app-modal-message">
+        <div class="modal-content modal-content--sm">
             <div class="modal-header">
-                <h2 id="privacy-modal-title">Politique de confidentialité</h2>
-                <button type="button" id="close-privacy" class="btn btn--ghost-dark btn--sm btn--icon" aria-label="Fermer la politique de confidentialité">
+                <h2 id="app-modal-title"></h2>
+                <button type="button" id="app-modal-close" class="btn btn--ghost-dark btn--sm btn--icon" aria-label="Fermer la fenêtre">
                     <i data-lucide="x" aria-hidden="true"></i>
                 </button>
             </div>
             <div class="modal-body">
-                <section>
-                    <h3>Données collectées</h3>
-                    <p>Lors de la connexion via Google, nous collectons votre nom, adresse e-mail et photo de profil à des fins d'authentification uniquement.</p>
-                    <p>Vos grilles de bingo (titre, catégorie, taille, contenu et état des cases) sont stockées sur Firebase Firestore, associées à votre identifiant unique.</p>
-                </section>
-                <section>
-                    <h3>Utilisation des données</h3>
-                    <p>Vos données sont utilisées exclusivement pour le fonctionnement de l'application. Elles ne sont ni vendues, ni partagées avec des tiers.</p>
-                </section>
-                <section>
-                    <h3>Vos droits (RGPD)</h3>
-                    <p>Conformément au RGPD, vous disposez d'un droit d'accès, de rectification, de portabilité et de suppression de vos données. Pour exercer ces droits, contactez le responsable du traitement.</p>
-                </section>
-                <section>
-                    <h3>Cookies</h3>
-                    <p>Ce site utilise uniquement des cookies techniques essentiels au fonctionnement de l'authentification Firebase. Aucun cookie publicitaire ou de tracking n'est utilisé.</p>
-                </section>
-                <section>
-                    <h3>Responsable du traitement</h3>
-                    <p>Mise à jour le <span id="privacy-date"></span>. &copy; <span class="dyn-year"></span> Bryan Drouet. Tous droits réservés.</p>
-                </section>
+                <p id="app-modal-message"></p>
+                <div class="modal-actions">
+                    <button type="button" id="app-modal-cancel" class="btn btn--neutral">Annuler</button>
+                    <button type="button" id="app-modal-confirm" class="btn btn--primary">Confirmer</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="true"></div>
-
-    <button type="button" id="info-fab" class="btn btn--dark btn--icon btn--round btn--fab" aria-label="Informations légales et politique de confidentialité" title="Informations">
+    <a href="/mentions-legales/" id="info-fab" class="btn btn--dark btn--icon btn--round btn--fab" aria-label="Ouvrir les mentions légales" title="Mentions légales">
         <i data-lucide="info" aria-hidden="true"></i>
-    </button>
+    </a>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <script src="js/firebase-config.js"></script>
     <script>
         document.write(`<script type="module" src="js/app.js?v=${Date.now()}"><\/script>`);
     </script>

@@ -26,14 +26,46 @@ import {
     limit
 } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
 
-const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyC6wMdN5gdEmwKeGmNRSB_56iAsg9EC8r0",
-    authDomain: "bingo-37e53.firebaseapp.com",
-    projectId: "bingo-37e53",
-    storageBucket: "bingo-37e53.firebasestorage.app",
-    messagingSenderId: "497573754040",
-    appId: "1:497573754040:web:2e0b3f7d7e87eef9fd304d"
-};
+const FIREBASE_CONFIG = window.__FIREBASE_CONFIG__;
+
+const REQUIRED_FIREBASE_KEYS = [
+    "apiKey",
+    "authDomain",
+    "projectId",
+    "storageBucket",
+    "messagingSenderId",
+    "appId"
+];
+
+function getMissingFirebaseKeys(config) {
+    if (!config || typeof config !== "object") return [...REQUIRED_FIREBASE_KEYS];
+    return REQUIRED_FIREBASE_KEYS.filter(k => !config[k]);
+}
+
+const missingFirebaseKeys = getMissingFirebaseKeys(FIREBASE_CONFIG);
+if (missingFirebaseKeys.length) {
+    const app = document.getElementById("app");
+    if (app) {
+        app.innerHTML = `
+            <div class="view view-login">
+                <header class="app-header">
+                    <div class="header-left">
+                        <div class="header-title-group">
+                            <span class="header-main-text">Bingo</span>
+                        </div>
+                    </div>
+                </header>
+                <div class="login-body">
+                    <div class="login-card">
+                        <h1>Configuration manquante</h1>
+                        <p>La configuration Firebase n'est pas chargee. Verifiez le fichier js/firebase-config.js.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    throw new Error(`Firebase config missing keys: ${missingFirebaseKeys.join(", ")}`);
+}
 
 const MAX_BINGOS = 50;
 
@@ -50,6 +82,59 @@ let currentUser = null;
 let saveTimer = null;
 let activeGameId = null;
 let liveMarkedCells = [];
+let hasShownWinModal = false;
+
+function getAppModalElements() {
+    return {
+        root: document.getElementById("app-modal"),
+        title: document.getElementById("app-modal-title"),
+        message: document.getElementById("app-modal-message"),
+        close: document.getElementById("app-modal-close"),
+        cancel: document.getElementById("app-modal-cancel"),
+        confirm: document.getElementById("app-modal-confirm")
+    };
+}
+
+function showAppModal({ title, message, confirmText = "Confirmer", cancelText = "Annuler", confirmVariant = "primary", hideCancel = false }) {
+    const modal = getAppModalElements();
+    if (!modal.root || !modal.title || !modal.message || !modal.close || !modal.cancel || !modal.confirm) {
+        return Promise.resolve(false);
+    }
+
+    modal.title.textContent = title;
+    modal.message.textContent = message;
+    modal.confirm.textContent = confirmText;
+    modal.cancel.textContent = cancelText;
+    modal.cancel.classList.toggle("hidden", hideCancel);
+    modal.confirm.className = `btn btn--${confirmVariant}`;
+    modal.root.classList.remove("hidden");
+
+    initIcons();
+
+    return new Promise(resolve => {
+        const closeWith = result => {
+            modal.root.classList.add("hidden");
+            modal.confirm.removeEventListener("click", onConfirm);
+            modal.cancel.removeEventListener("click", onCancel);
+            modal.close.removeEventListener("click", onClose);
+            modal.root.removeEventListener("click", onBackdrop);
+            resolve(result);
+        };
+
+        const onConfirm = () => closeWith(true);
+        const onCancel = () => closeWith(false);
+        const onClose = () => closeWith(false);
+        const onBackdrop = e => {
+            if (e.target === modal.root) closeWith(false);
+        };
+
+        modal.confirm.addEventListener("click", onConfirm);
+        modal.cancel.addEventListener("click", onCancel);
+        modal.close.addEventListener("click", onClose);
+        modal.root.addEventListener("click", onBackdrop);
+        modal.confirm.focus();
+    });
+}
 
 function initIcons() {
     if (window.lucide) window.lucide.createIcons();
@@ -77,20 +162,6 @@ function showToast(message, type = "info") {
     }, 3600);
 }
 
-function openPrivacyModal() {
-    const modal = document.getElementById("privacy-modal");
-    if (!modal) return;
-    modal.classList.remove("hidden");
-    const dateEl = document.getElementById("privacy-date");
-    if (dateEl) dateEl.textContent = new Date().toLocaleDateString("fr-FR");
-    updateYears();
-    initIcons();
-}
-
-function closePrivacyModal() {
-    document.getElementById("privacy-modal")?.classList.add("hidden");
-}
-
 function initCookieBanner() {
     const banner = document.getElementById("cookie-banner");
     if (!banner) return;
@@ -105,15 +176,6 @@ function initCookieBanner() {
         banner.classList.add("hidden");
         showToast("Certaines fonctionnalités peuvent être limitées.", "warning");
     });
-    document.getElementById("privacy-link-cookie")?.addEventListener("click", openPrivacyModal);
-}
-
-function initPrivacyModal() {
-    document.getElementById("close-privacy")?.addEventListener("click", closePrivacyModal);
-    document.getElementById("privacy-modal")?.addEventListener("click", e => {
-        if (e.target === document.getElementById("privacy-modal")) closePrivacyModal();
-    });
-    document.getElementById("info-fab")?.addEventListener("click", openPrivacyModal);
 }
 
 function bingoCollRef() {
@@ -185,6 +247,10 @@ function renderLoginView() {
                         </svg>
                         Se connecter avec Google
                     </button>
+                    <div class="login-footer-links" aria-label="Liens légaux">
+                        <a href="/mentions-legales/" class="link">Mentions légales</a>
+                        <a href="/politique-confidentialite/" class="link">Politique de confidentialité</a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -332,9 +398,7 @@ function renderBingoCards(bingos) {
             <h3 class="bingo-card-title">${b.title}</h3>
             <div aria-hidden="true">${buildMiniPreview(b)}</div>
             <div class="bingo-card-actions">
-                <button type="button" class="btn btn--primary btn--sm js-play" data-id="${b.id}" aria-label="Jouer à ${b.title}">
-                    <i data-lucide="play" aria-hidden="true"></i> Jouer
-                </button>
+                <button type="button" class="btn btn--primary btn--sm js-play" data-id="${b.id}" aria-label="Jouer à ${b.title}">Jouer</button>
                 <button type="button" class="btn btn--neutral btn--sm btn--icon js-edit" data-id="${b.id}" aria-label="Modifier ${b.title}">
                     <i data-lucide="pencil" aria-hidden="true"></i>
                 </button>
@@ -366,7 +430,14 @@ function buildMiniPreview(bingo) {
 }
 
 async function handleDeleteBingo(id) {
-    if (!window.confirm("Voulez-vous vraiment supprimer ce bingo ?")) return;
+    const confirmed = await showAppModal({
+        title: "Supprimer ce bingo",
+        message: "Cette action est définitive. Voulez-vous continuer ?",
+        confirmText: "Supprimer",
+        cancelText: "Annuler",
+        confirmVariant: "danger"
+    });
+    if (!confirmed) return;
     try {
         await deleteDoc(bingoDocRef(id));
         showToast("Bingo supprimé.", "success");
@@ -419,14 +490,15 @@ async function renderCreateView(editId = null) {
     main.innerHTML = `
         <form id="create-form" class="create-form" novalidate>
             <h2 class="form-section-title">${editId ? "Modifier le bingo" : "Nouveau bingo"}</h2>
+            <p class="form-required-note">Les champs marqués <span class="required-mark" aria-hidden="true">*</span> sont obligatoires.</p>
             <div class="form-row form-row-2">
                 <div class="form-group">
-                    <label for="f-title">Titre <span aria-hidden="true">*</span></label>
+                    <label for="f-title">Titre<span class="required-mark" aria-hidden="true">*</span></label>
                     <input type="text" id="f-title" name="f-title"
                                  placeholder="Ex: Nintendo Direct Juin 2026"
                                  value="${existing?.title || ""}" required maxlength="100"
                                  aria-required="true" aria-describedby="hint-title">
-                    <span id="hint-title" class="form-hint">100 caractères max. Obligatoire.</span>
+                    <span id="hint-title" class="form-hint">100 caractères max.</span>
                 </div>
                 <div class="form-group">
                     <label for="f-category">Catégorie</label>
@@ -434,20 +506,19 @@ async function renderCreateView(editId = null) {
                                  placeholder="Ex: Nintendo, Gaming, Cinéma"
                                  value="${existing?.category || ""}" maxlength="50"
                                  aria-describedby="hint-cat">
-                    <span id="hint-cat" class="form-hint">Permet de regrouper vos bingos.</span>
                 </div>
             </div>
-            <div class="form-group" style="max-width:260px">
-                <label for="f-size">Taille de la grille</label>
+            <div class="form-group">
+                <label for="f-size">Taille de la grille <span class="required-mark" aria-hidden="true">*</span></label>
                 <select id="f-size" name="f-size" aria-describedby="hint-size">
                     <option value="3" ${size === 3 ? "selected" : ""}>3x3 (9 cases)</option>
                     <option value="4" ${size === 4 ? "selected" : ""}>4x4 (16 cases)</option>
                     <option value="5" ${size === 5 ? "selected" : ""}>5x5 (25 cases)</option>
                 </select>
-                <span id="hint-size" class="form-hint">Choisissez la taille de votre grille de bingo.</span>
             </div>
             <div class="form-group">
-                <span class="cells-label">Contenu des cases</span>
+                <span class="cells-label">Contenu des cases <span class="required-mark" aria-hidden="true">*</span></span>
+                <span class="form-hint">Toutes les cases sont obligatoires.</span>
                 <div id="cells-editor" class="cells-grid-editor cells-editor-${size}">
                     ${buildCellInputs(size, existing?.cells)}
                 </div>
@@ -455,7 +526,6 @@ async function renderCreateView(editId = null) {
             <div class="form-actions">
                 <button type="button" id="cancel-btn" class="btn btn--neutral">Annuler</button>
                 <button type="submit" class="btn btn--primary">
-                    <i data-lucide="${editId ? "save" : "plus-circle"}" aria-hidden="true"></i>
                     ${editId ? "Enregistrer les modifications" : "Créer le bingo"}
                 </button>
             </div>
@@ -480,7 +550,7 @@ function buildCellInputs(size, values) {
         <div class="cell-editor-wrap">
             <label for="cell-${i}">Case ${i + 1}</label>
             <textarea id="cell-${i}" name="cell-${i}" rows="2" maxlength="80"
-                                placeholder="Case ${i + 1}" aria-label="Contenu de la case ${i + 1}">${values?.[i] || ""}</textarea>
+                                placeholder="Saisir le contenu" aria-label="Contenu obligatoire de la case ${i + 1} du bingo, 80 caractères maximum" required aria-required="true">${values?.[i] || ""}</textarea>
         </div>
     `).join("");
 }
@@ -497,9 +567,22 @@ async function handleSaveBingo(e, editId) {
         return;
     }
 
+    if (![3, 4, 5].includes(size)) {
+        showToast("La taille de la grille est obligatoire.", "warning");
+        document.getElementById("f-size")?.focus();
+        return;
+    }
+
     const cells = Array.from({ length: size * size }, (_, i) =>
         document.getElementById(`cell-${i}`)?.value.trim() || ""
     );
+
+    const firstEmptyCellIndex = cells.findIndex(cell => !cell);
+    if (firstEmptyCellIndex !== -1) {
+        showToast(`La case ${firstEmptyCellIndex + 1} est obligatoire.`, "warning");
+        document.getElementById(`cell-${firstEmptyCellIndex}`)?.focus();
+        return;
+    }
 
     const submit = document.querySelector("#create-form [type='submit']");
     if (submit) submit.disabled = true;
@@ -536,6 +619,7 @@ async function handleSaveBingo(e, editId) {
 /* ---- PLAY VIEW ---- */
 async function renderPlayView(bingoId) {
     activeGameId = bingoId;
+    hasShownWinModal = false;
     const app = document.getElementById("app");
     app.innerHTML = `
         <div class="view view-play">
@@ -565,7 +649,6 @@ async function renderPlayView(bingoId) {
 function renderPlayBoard(bingo) {
     const app = document.getElementById("app");
     const size = bingo.size;
-    const won = checkBingoWin(liveMarkedCells, size);
 
     app.innerHTML = `
         <div class="view view-play">
@@ -599,10 +682,6 @@ function renderPlayBoard(bingo) {
                         `).join("")}
                     </div>
                 </div>
-                <div id="win-banner" class="win-banner${won ? "" : " hidden"}" role="alert" aria-live="assertive">
-                    <i data-lucide="trophy" aria-hidden="true"></i>
-                    <span>BINGO !</span>
-                </div>
             </main>
         </div>
     `;
@@ -615,9 +694,16 @@ function renderPlayBoard(bingo) {
         renderDashboard();
     });
 
-    document.getElementById("reset-btn")?.addEventListener("click", () => {
-        if (!window.confirm("Réinitialiser toutes les cases cochées ?")) return;
+    document.getElementById("reset-btn")?.addEventListener("click", async () => {
+        const confirmed = await showAppModal({
+            title: "Réinitialiser la grille",
+            message: "Toutes les cases cochées vont être décochées.",
+            confirmText: "Réinitialiser",
+            cancelText: "Annuler"
+        });
+        if (!confirmed) return;
         liveMarkedCells = new Array(bingo.size * bingo.size).fill(false);
+        hasShownWinModal = false;
         renderPlayBoard(bingo);
         scheduleSave(activeGameId, [...liveMarkedCells]);
     });
@@ -629,11 +715,16 @@ function renderPlayBoard(bingo) {
             cell.classList.toggle("marked", liveMarkedCells[i]);
             cell.setAttribute("aria-pressed", liveMarkedCells[i]);
             cell.setAttribute("aria-label", `${bingo.cells[i] || "Case vide"}, ${liveMarkedCells[i] ? "cochée" : "non cochée"}`);
-            const banner = document.getElementById("win-banner");
-            if (banner) {
-                const won = checkBingoWin(liveMarkedCells, bingo.size);
-                banner.classList.toggle("hidden", !won);
-                if (won) initIcons();
+
+            const isWinner = checkBingoWin(liveMarkedCells, bingo.size);
+            if (isWinner && !hasShownWinModal) {
+                hasShownWinModal = true;
+                showAppModal({
+                    title: "Bingo !",
+                    message: "Félicitations, vous avez complété une ligne gagnante.",
+                    confirmText: "Continuer",
+                    hideCancel: true
+                });
             }
             scheduleSave(activeGameId, [...liveMarkedCells]);
         });
@@ -688,5 +779,4 @@ getRedirectResult(auth).catch(err => {
 
 /* ---- INIT ---- */
 initCookieBanner();
-initPrivacyModal();
 updateYears();
