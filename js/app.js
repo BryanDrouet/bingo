@@ -2020,6 +2020,7 @@ async function renderCreateView(editId = null) {
 
         const isCustom = select.value === "__new__";
         const categoryRaw = isCustom ? customInput.value : select.value;
+        const isNoCategory = !String(categoryRaw || "").trim();
         const categoryKey = normalizeCategoryName(categoryRaw);
         const matchedEntry = categoryRegistry.byKey[categoryKey] || null;
         const shouldLockColor = !!matchedEntry || !isCustom;
@@ -2050,12 +2051,20 @@ async function renderCreateView(editId = null) {
             categoryColorConfig.classList.toggle("hidden", shouldLockColor);
         }
 
-        // Live theme preview for the whole create page while editing color.
-        applyBodyAccentTheme(resolvedColor, resolvedPattern, zoom);
+        // Keep the global default background when "Sans catégorie" is selected.
+        if (isNoCategory) {
+            resetBodyAccentTheme();
+        } else {
+            applyBodyAccentTheme(resolvedColor, resolvedPattern, zoom);
+        }
 
         if (liveTag) {
             liveTag.textContent = getCreateCategoryValue().trim() || "Sans catégorie";
-            liveTag.style.cssText = buildCategoryInlineStyle(resolvedColor, resolvedPattern, zoom);
+            if (isNoCategory) {
+                liveTag.style.cssText = "";
+            } else {
+                liveTag.style.cssText = buildCategoryInlineStyle(resolvedColor, resolvedPattern, zoom);
+            }
         }
     }
 
@@ -2241,11 +2250,16 @@ async function renderPlayView(bingoId) {
         return;
     }
 
-    applyBodyAccentTheme(
-        bingo.categoryColor,
-        bingo.categoryPattern,
-        getSmallestPatternZoom(bingo.categoryPattern)
-    );
+    const isNoCategoryBingo = normalizeCategoryName(bingo.category) === normalizeCategoryName("Sans catégorie");
+    if (isNoCategoryBingo) {
+        resetBodyAccentTheme();
+    } else {
+        applyBodyAccentTheme(
+            bingo.categoryColor,
+            bingo.categoryPattern,
+            getSmallestPatternZoom(bingo.categoryPattern)
+        );
+    }
     liveMarkedCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
     await renderPlayBoard(bingo);
 }

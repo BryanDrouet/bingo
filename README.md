@@ -23,6 +23,7 @@ Exemple de document Bingo:
     "category": "Nintendo",
     "categoryColor": "#CC0000",
     "categoryPattern": "none",
+    "categoryPatternZoom": 1,
     "size": 3,
     "cells": [
         "Annonce Metroid",
@@ -49,6 +50,7 @@ Contraintes appliquees dans l'app:
 - longueur max de `category`: `50`
 - format `categoryColor` (si present): `#RRGGBB`
 - format `categoryPattern` (si present): `none` ou `[a-z0-9-]{1,64}`
+- format `categoryPatternZoom` (si present): `0.5 | 1 | 1.5 | 2`
 - longueur max par cellule cote front: `80`
 
 ## 2. Requetes Firestore utilisees
@@ -100,13 +102,18 @@ service cloud.firestore {
             return p is string && p.matches('^(none|[a-z0-9-]{1,64})$');
         }
 
+        function isValidPatternZoom(z) {
+            return (z is int || z is float)
+                && (z == 0.5 || z == 1 || z == 1.5 || z == 2);
+        }
+
         match /users/{userId}/bingos/{bingoId} {
 
             allow read: if isOwner(userId);
 
             allow create: if isOwner(userId)
                 && request.resource.data.keys().hasOnly([
-                    'title','category','categoryColor','categoryPattern','size','cells','markedCells','createdAt','updatedAt'
+                    'title','category','categoryColor','categoryPattern','categoryPatternZoom','size','cells','markedCells','createdAt','updatedAt'
                 ])
                 && request.resource.data.keys().hasAll([
                     'title','category','size','cells','createdAt','updatedAt'
@@ -121,6 +128,10 @@ service cloud.firestore {
                     !request.resource.data.keys().hasAny(['categoryPattern'])
                     || isValidPatternKey(request.resource.data.categoryPattern)
                 )
+                && (
+                    !request.resource.data.keys().hasAny(['categoryPatternZoom'])
+                    || isValidPatternZoom(request.resource.data.categoryPatternZoom)
+                )
                 && isValidSize(request.resource.data.size)
                 && isValidCellsArray(request.resource.data.cells, request.resource.data.size)
                 && (
@@ -132,7 +143,7 @@ service cloud.firestore {
 
             allow update: if isOwner(userId)
                 && request.resource.data.keys().hasOnly([
-                    'title','category','categoryColor','categoryPattern','size','cells','markedCells','createdAt','updatedAt'
+                    'title','category','categoryColor','categoryPattern','categoryPatternZoom','size','cells','markedCells','createdAt','updatedAt'
                 ])
                 && isValidString(request.resource.data.title, 100)
                 && isValidString(request.resource.data.category, 50)
@@ -143,6 +154,10 @@ service cloud.firestore {
                 && (
                     !request.resource.data.keys().hasAny(['categoryPattern'])
                     || isValidPatternKey(request.resource.data.categoryPattern)
+                )
+                && (
+                    !request.resource.data.keys().hasAny(['categoryPatternZoom'])
+                    || isValidPatternZoom(request.resource.data.categoryPatternZoom)
                 )
                 && isValidSize(request.resource.data.size)
                 && isValidCellsArray(request.resource.data.cells, request.resource.data.size)
@@ -170,6 +185,7 @@ Notes:
 - elles valident la taille des grilles et la forme des tableaux
 - elles autorisent la personnalisation de couleur de categorie (`categoryColor`)
 - elles autorisent aussi le motif de categorie (`categoryPattern`)
+- elles autorisent aussi le zoom de motif (`categoryPatternZoom`)
 
 ## 4. Index Firestore
 
