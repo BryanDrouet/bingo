@@ -22,6 +22,7 @@ Exemple de document Bingo:
     "title": "Nintendo Direct 2026",
     "category": "Nintendo",
     "categoryColor": "#CC0000",
+    "categoryPattern": "none",
     "size": 3,
     "cells": [
         "Annonce Metroid",
@@ -47,6 +48,7 @@ Contraintes appliquees dans l'app:
 - longueur max du `title`: `100`
 - longueur max de `category`: `50`
 - format `categoryColor` (si present): `#RRGGBB`
+- format `categoryPattern` (si present): `none` ou `[a-z0-9-]{1,64}`
 - longueur max par cellule cote front: `80`
 
 ## 2. Requetes Firestore utilisees
@@ -94,13 +96,17 @@ service cloud.firestore {
             return c is string && c.matches('^#[0-9A-Fa-f]{6}$');
         }
 
+        function isValidPatternKey(p) {
+            return p is string && p.matches('^(none|[a-z0-9-]{1,64})$');
+        }
+
         match /users/{userId}/bingos/{bingoId} {
 
             allow read: if isOwner(userId);
 
             allow create: if isOwner(userId)
                 && request.resource.data.keys().hasOnly([
-                    'title','category','categoryColor','size','cells','markedCells','createdAt','updatedAt'
+                    'title','category','categoryColor','categoryPattern','size','cells','markedCells','createdAt','updatedAt'
                 ])
                 && request.resource.data.keys().hasAll([
                     'title','category','size','cells','createdAt','updatedAt'
@@ -110,6 +116,10 @@ service cloud.firestore {
                 && (
                     !request.resource.data.keys().hasAny(['categoryColor'])
                     || isValidColorHex(request.resource.data.categoryColor)
+                )
+                && (
+                    !request.resource.data.keys().hasAny(['categoryPattern'])
+                    || isValidPatternKey(request.resource.data.categoryPattern)
                 )
                 && isValidSize(request.resource.data.size)
                 && isValidCellsArray(request.resource.data.cells, request.resource.data.size)
@@ -122,13 +132,17 @@ service cloud.firestore {
 
             allow update: if isOwner(userId)
                 && request.resource.data.keys().hasOnly([
-                    'title','category','categoryColor','size','cells','markedCells','createdAt','updatedAt'
+                    'title','category','categoryColor','categoryPattern','size','cells','markedCells','createdAt','updatedAt'
                 ])
                 && isValidString(request.resource.data.title, 100)
                 && isValidString(request.resource.data.category, 50)
                 && (
                     !request.resource.data.keys().hasAny(['categoryColor'])
                     || isValidColorHex(request.resource.data.categoryColor)
+                )
+                && (
+                    !request.resource.data.keys().hasAny(['categoryPattern'])
+                    || isValidPatternKey(request.resource.data.categoryPattern)
                 )
                 && isValidSize(request.resource.data.size)
                 && isValidCellsArray(request.resource.data.cells, request.resource.data.size)
@@ -155,6 +169,7 @@ Notes:
 - elles empechent les champs imprévus
 - elles valident la taille des grilles et la forme des tableaux
 - elles autorisent la personnalisation de couleur de categorie (`categoryColor`)
+- elles autorisent aussi le motif de categorie (`categoryPattern`)
 
 ## 4. Index Firestore
 

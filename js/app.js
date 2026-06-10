@@ -94,10 +94,42 @@ let currentViewState = null;
 let dashboardAllBingos = [];
 let dashboardSearchDebounceTimer = null;
 let dashboardSearchMediaQuery = null;
+let themeTransitionTimeout = null;
 let dashboardCategoryRegistry = { byKey: {}, list: [], colorByName: {} };
 const HEADER_TRANSITION_MS = 180;
 const VIEW_STATE_STORAGE_KEY = "bingo-view-state";
 const CREATE_DRAFT_STORAGE_KEY = "bingo-create-draft";
+const PATTERN_ALL_ZOOMS = [0.5, 1, 1.5, 2];
+const ALLOWED_CATEGORY_PATTERN_KEYS = new Set([
+    "argyle",
+    "brady-bunch",
+    "upholstery",
+    "carbon",
+    "cross-dots",
+    "japanese-cube",
+    "conic-checker",
+    "diagonal-checkerboard",
+    "carbon-fibre",
+    "blueprint-grid",
+    "tablecloth",
+    "dots",
+    "polka-dot",
+    "horizontal-stripes",
+    "vertical-stripes",
+    "shippo",
+    "tartan",
+    "waves"
+]);
+const PATTERN_ZOOM_RULES = {
+    argyle: [0.5, 1.5],
+    "brady-bunch": [0.5],
+    "cross-dots": [0.5],
+    "japanese-cube": [1],
+    "polka-dot": [0.5],
+    shippo: [1],
+    tartan: [1.5, 2],
+    waves: [1]
+};
 
 function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -170,12 +202,14 @@ function saveCreateDraft(editId) {
     const cells = Array.from({ length: size * size }, (_, i) => document.getElementById(`cell-${i}`)?.value || "");
     const categoryValue = getCreateCategoryValue();
     const categoryColor = getCreateCategoryColorValue();
+    const categoryPattern = getCreateCategoryPatternValue();
 
     writeStoredJson(CREATE_DRAFT_STORAGE_KEY, {
         editId: editId || null,
         title: document.getElementById("f-title")?.value || "",
         category: categoryValue || "",
         categoryColor,
+        categoryPattern,
         size,
         cells
     });
@@ -190,6 +224,10 @@ function getCreateCategoryValue() {
 
 function getCreateCategoryColorValue() {
     return normalizeHexColor(document.getElementById("f-category-color")?.value, "#CC0000");
+}
+
+function getCreateCategoryPatternValue() {
+    return normalizeCategoryPatternKey(document.getElementById("f-category-pattern")?.value, "none");
 }
 
 function clearCreateDraft(editId = null) {
@@ -411,6 +449,26 @@ async function updateCategoryColorForName(categoryName, nextColor) {
     dashboardAllBingos = dashboardAllBingos.map(bingo =>
         normalizeCategoryName(bingo.category) === normalizeCategoryName(categoryName)
             ? { ...bingo, categoryColor: nextColor }
+            : bingo
+    );
+    dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
+}
+
+async function updateCategoryPatternForName(categoryName, nextPattern, nextPatternZoom = 1) {
+    const normalizedZoom = normalizePatternZoom(nextPatternZoom, 1, nextPattern);
+    const targets = dashboardAllBingos.filter(
+        bingo => normalizeCategoryName(bingo.category) === normalizeCategoryName(categoryName)
+    );
+
+    await Promise.all(targets.map(bingo => updateDoc(bingoDocRef(bingo.id), {
+        categoryPattern: nextPattern,
+        categoryPatternZoom: normalizedZoom,
+        updatedAt: serverTimestamp()
+    })));
+
+    dashboardAllBingos = dashboardAllBingos.map(bingo =>
+        normalizeCategoryName(bingo.category) === normalizeCategoryName(categoryName)
+            ? { ...bingo, categoryPattern: nextPattern, categoryPatternZoom: normalizedZoom }
             : bingo
     );
     dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
@@ -993,10 +1051,19 @@ function renderCategoryManagerPanelIn(containerId, registry) {
                         <input type="text" id="cat-name-${index}" class="category-manager-name-input" value="${escapeHtml(entry.name)}" maxlength="50" autocomplete="off" spellcheck="false" aria-label="Nom de la catégorie ${escapeHtml(entry.name)}">
                     </div>
                     <div class="category-color-config">
-                        <label for="cat-color-${index}">Couleur de la catégorie</label>
-                        <div class="category-color-controls">
-                            <input type="color" id="cat-color-${index}" class="category-color-swatch" value="${entry.color}" aria-label="Choisir une couleur pour ${escapeHtml(entry.name)}">
-                            <input type="text" id="cat-color-hex-${index}" class="category-color-hex" value="${entry.color}" maxlength="7" pattern="^#?[A-Fa-f0-9]{3}([A-Fa-f0-9]{3})?$" aria-label="Code hexadécimal pour ${escapeHtml(entry.name)}">
+                        <label for="cat-color-${index}">Personnalisation de la catégorie</label>
+                        <div class="category-personalization-config">
+                            <div class="category-color-controls">
+                                <input type="color" id="cat-color-${index}" class="category-color-swatch" value="${entry.color}" aria-label="Choisir une couleur pour ${escapeHtml(entry.name)}">
+                                <input type="text" id="cat-color-hex-${index}" class="category-color-hex" value="${entry.color}" maxlength="7" pattern="^#?[A-Fa-f0-9]{3}([A-Fa-f0-9]{3})?$" aria-label="Code hexadécimal pour ${escapeHtml(entry.name)}">
+                            </div>
+                            <div class="category-pattern-config">
+                                <label for="cat-pattern-${index}">Motif de fond</label>
+                                <select id="cat-pattern-${index}" class="category-pattern-select" aria-label="Choisir un motif de fond pour ${escapeHtml(entry.name)}">
+                                    ${buildCategoryPatternOptions(entry.pattern || "none")}
+                                </select>
+                            </div>
+                            <div class="category-pattern-preview" id="cat-pattern-preview-${index}" aria-hidden="true"></div>
                         </div>
                     </div>
                 </div>
@@ -1008,7 +1075,21 @@ function renderCategoryManagerPanelIn(containerId, registry) {
         const nameInput = item.querySelector(".category-manager-name-input");
         const colorInput = item.querySelector(".category-color-swatch");
         const hexInput = item.querySelector(".category-color-hex");
-        if (!nameInput || !colorInput || !hexInput) return;
+        const patternSelect = item.querySelector(".category-pattern-select");
+        const patternPreview = item.querySelector(".category-pattern-preview");
+        if (!nameInput || !colorInput || !hexInput || !patternSelect) return;
+        item.dataset.color = normalizeHexColor(colorInput.value, "#CC0000");
+        item.dataset.pattern = normalizeCategoryPatternKey(patternSelect.value, "none");
+
+        const updatePatternPreview = () => {
+            const patternKey = normalizeCategoryPatternKey(patternSelect.value, "none");
+            const zoom = getSmallestPatternZoom(patternKey);
+            applyPatternPreview(patternPreview, patternSelect.value, {
+                color: colorInput.value,
+                zoom
+            });
+        };
+        updatePatternPreview();
 
         const syncAndPreview = source => {
             const color = normalizeHexColor(colorInput.value, "#CC0000");
@@ -1016,23 +1097,38 @@ function renderCategoryManagerPanelIn(containerId, registry) {
             if (source !== "hex" || document.activeElement !== hexInput) {
                 hexInput.value = color;
             }
+            updatePatternPreview();
         };
 
         const persist = async () => {
             const categoryName = item.dataset.category || "";
             const nextColor = normalizeHexColor(colorInput.value, "#CC0000");
+            const nextPattern = normalizeCategoryPatternKey(patternSelect.value, "none");
+            const nextPatternZoom = getSmallestPatternZoom(nextPattern);
+            const shouldPersistColor = normalizeHexColor(colorInput.value, "#CC0000") !== normalizeHexColor(item.dataset.color || "", "#CC0000");
+            const shouldPersistPattern = nextPattern !== normalizeCategoryPatternKey(item.dataset.pattern || "none", "none");
+            if (!shouldPersistColor && !shouldPersistPattern) return;
             colorInput.disabled = true;
             hexInput.disabled = true;
+            patternSelect.disabled = true;
             try {
-                await updateCategoryColorForName(categoryName, nextColor);
-                showToast(`Couleur mise à jour pour ${categoryName}.`, "success");
+                if (shouldPersistColor) {
+                    await updateCategoryColorForName(categoryName, nextColor);
+                    item.dataset.color = nextColor;
+                }
+                if (shouldPersistPattern) {
+                    await updateCategoryPatternForName(categoryName, nextPattern, nextPatternZoom);
+                    item.dataset.pattern = nextPattern;
+                }
+                showToast(`Catégorie ${categoryName} mise à jour.`, "success");
             } catch (err) {
                 const details = getFriendlyErrorDetails(err, "la mise à jour de la catégorie");
                 showToast(`${details.userMessage} Voir la console (F12).`, "error");
-                logStyledError("Mise à jour catégorie", err, details, { categoryName, nextColor });
+                logStyledError("Mise à jour catégorie", err, details, { categoryName, nextColor, nextPattern, nextPatternZoom });
             } finally {
                 colorInput.disabled = false;
                 hexInput.disabled = false;
+                patternSelect.disabled = false;
             }
         };
 
@@ -1062,6 +1158,7 @@ function renderCategoryManagerPanelIn(containerId, registry) {
             nameInput.disabled = true;
             colorInput.disabled = true;
             hexInput.disabled = true;
+            patternSelect.disabled = true;
             try {
                 await renameCategoryForName(currentName, nextName);
                 item.dataset.category = nextName;
@@ -1077,6 +1174,7 @@ function renderCategoryManagerPanelIn(containerId, registry) {
                 nameInput.disabled = false;
                 colorInput.disabled = false;
                 hexInput.disabled = false;
+                patternSelect.disabled = false;
             }
         };
 
@@ -1104,6 +1202,10 @@ function renderCategoryManagerPanelIn(containerId, registry) {
             const normalized = normalizeHexColor(hexInput.value, "#CC0000");
             colorInput.value = normalized;
             syncAndPreview("hex");
+            await persist();
+        });
+        patternSelect.addEventListener("change", async () => {
+            updatePatternPreview();
             await persist();
         });
     });
@@ -1270,6 +1372,156 @@ function normalizeHexColor(value, fallback = "#CC0000") {
     return fallback;
 }
 
+function normalizeCssVarContent(value) {
+    return String(value || "").trim().replace(/^['"]|['"]$/g, "");
+}
+
+function getAllowedPatternZooms(patternKey = "none") {
+    const key = String(patternKey || "none").trim();
+    if (key === "none") return [1];
+
+    const configured = PATTERN_ZOOM_RULES[key];
+    const source = Array.isArray(configured) ? configured : PATTERN_ALL_ZOOMS;
+    const values = [...new Set([...source, 1])]
+        .map(entry => Number.parseFloat(entry))
+        .filter(entry => Number.isFinite(entry) && entry >= 0.5 && entry <= 2)
+        .map(entry => Math.round(entry * 2) / 2)
+        .sort((a, b) => a - b);
+
+    return values.length ? values : [1];
+}
+
+function normalizePatternZoom(value, fallback = 1, patternKey = null) {
+    const allowed = getAllowedPatternZooms(patternKey || "");
+    const fallbackValue = Number.isFinite(Number.parseFloat(fallback))
+        ? Number.parseFloat(fallback)
+        : allowed[0];
+    const parsed = Number.parseFloat(value);
+    const target = Number.isFinite(parsed) ? parsed : fallbackValue;
+
+    let closest = allowed[0];
+    for (const candidate of allowed) {
+        if (Math.abs(candidate - target) < Math.abs(closest - target)) {
+            closest = candidate;
+        }
+    }
+
+    return closest;
+}
+
+function getSmallestPatternZoom(patternKey = "none") {
+    const allowed = getAllowedPatternZooms(patternKey);
+    return allowed[0] || 1;
+}
+
+function scalePatternSize(sizeValue, zoom = 1) {
+    const normalizedZoom = normalizePatternZoom(zoom, 1);
+    const rawSize = String(sizeValue || "").trim();
+    const size = rawSize || "40px 40px";
+    if (size === "auto" || normalizedZoom === 1) return size;
+
+    return size.replace(/(-?\d*\.?\d+)px/gi, (_, value) => {
+        const scaled = Number.parseFloat(value) * normalizedZoom;
+        const rounded = Math.max(0.1, scaled).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+        return `${rounded}px`;
+    });
+}
+
+function humanizePatternKey(key) {
+    return String(key || "")
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function getCategoryPatternPresets() {
+    const rootStyles = getComputedStyle(document.documentElement);
+    const grouped = {};
+
+    for (let index = 0; index < rootStyles.length; index += 1) {
+        const propertyName = rootStyles[index];
+        const match = propertyName.match(/^--category-pattern-([a-z\d-]+)-(label|image|size|position)$/i);
+        if (!match) continue;
+        const [, key, field] = match;
+        grouped[key] = grouped[key] || { key };
+        grouped[key][field] = normalizeCssVarContent(rootStyles.getPropertyValue(propertyName));
+    }
+
+    const dynamicPresets = Object.values(grouped)
+        .filter(entry => entry.image)
+        .map(entry => ({
+            key: entry.key,
+            label: entry.label || humanizePatternKey(entry.key),
+            image: entry.image,
+            size: entry.size || "40px 40px",
+            position: entry.position || "0 0"
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, "fr"));
+
+    const fallbackPresets = [
+        {
+            key: "conic-checker",
+            label: "Damier conique",
+            image: "repeating-conic-gradient(rgba(0,0,0,0.14) 0% 25%, transparent 0% 50%)",
+            size: "38px 38px",
+            position: "0 0"
+        },
+        {
+            key: "diagonal-stripes",
+            label: "Rayures diagonales",
+            image: "repeating-linear-gradient(45deg, rgba(0,0,0,0.14) 0 6px, transparent 6px 12px)",
+            size: "34px 34px",
+            position: "0 0"
+        },
+        {
+            key: "dots",
+            label: "Pois",
+            image: "radial-gradient(circle, rgba(0,0,0,0.18) 0 3px, transparent 4px)",
+            size: "26px 26px",
+            position: "0 0"
+        }
+    ];
+
+    const presets = (dynamicPresets.length ? dynamicPresets : fallbackPresets)
+        .filter(preset => ALLOWED_CATEGORY_PATTERN_KEYS.has(preset.key));
+    return [{ key: "none", label: "Aucun motif", image: "none", size: "auto", position: "0 0" }, ...presets];
+}
+
+function normalizeCategoryPatternKey(value, fallback = "none") {
+    const key = String(value || "").trim();
+    if (!key) return fallback;
+    const presets = getCategoryPatternPresets();
+    return presets.some(preset => preset.key === key) ? key : fallback;
+}
+
+function getCategoryPatternPresetByKey(patternKey) {
+    const presets = getCategoryPatternPresets();
+    return presets.find(preset => preset.key === patternKey) || presets[0];
+}
+
+function buildCategoryPatternOptions(selectedPattern = "none") {
+    const normalized = normalizeCategoryPatternKey(selectedPattern, "none");
+    return getCategoryPatternPresets().map(preset =>
+        `<option value="${escapeHtml(preset.key)}" ${preset.key === normalized ? "selected" : ""}>${escapeHtml(preset.label)}</option>`
+    ).join("");
+}
+
+function applyPatternPreview(previewElement, patternKey = "none", options = {}) {
+    if (!previewElement) return;
+    const preset = getCategoryPatternPresetByKey(normalizeCategoryPatternKey(patternKey, "none"));
+    const color = normalizeHexColor(options.color, "#CC0000");
+    const zoom = getSmallestPatternZoom(preset.key);
+    const computedRootStyles = getComputedStyle(document.documentElement);
+    const patternOpacity = (computedRootStyles.getPropertyValue("--theme-pattern-opacity") || "0.42").trim() || "0.42";
+
+    previewElement.style.setProperty("--preview-pattern-color", color);
+    previewElement.style.setProperty("--preview-pattern-image", preset.image === "none" ? "none" : preset.image);
+    previewElement.style.setProperty("--preview-pattern-size", scalePatternSize(preset.size || "40px 40px", zoom));
+    previewElement.style.setProperty("--preview-pattern-position", preset.position || "0 0");
+    previewElement.style.setProperty("--preview-pattern-opacity", preset.key === "none" ? "0" : patternOpacity);
+    previewElement.style.setProperty("--pattern-zoom", String(zoom));
+    previewElement.classList.toggle("is-empty", preset.key === "none");
+}
+
 function hexToRgb(hexColor) {
     const color = normalizeHexColor(hexColor);
     const hex = color.slice(1);
@@ -1299,14 +1551,20 @@ function getReadableTextColor(hexColor) {
     return luminance > 0.62 ? "#111111" : "#FFFFFF";
 }
 
-function buildCategoryInlineStyle(color) {
+function buildCategoryInlineStyle(color, pattern = "none", zoom = 1) {
     const base = normalizeHexColor(color);
+    const normalizedPatternKey = normalizeCategoryPatternKey(pattern, "none");
+    const preset = getCategoryPatternPresetByKey(normalizedPatternKey);
+    const normalizedZoom = normalizePatternZoom(zoom, getSmallestPatternZoom(normalizedPatternKey), normalizedPatternKey);
     return [
         `--category-color:${base}`,
         `--category-color-dark:${darkenHexColor(base, 22)}`,
         `--category-bg:${hexToRgba(base, 0.6)}`,
         `--category-border:${hexToRgba(base)}`,
-        `--category-text:${getReadableTextColor(base)}`
+        `--category-text:${getReadableTextColor(base)}`,
+        `--category-pattern-image:${preset.image === "none" ? "none" : preset.image}`,
+        `--category-pattern-size:${scalePatternSize(preset.size || "40px 40px", normalizedZoom)}`,
+        `--category-pattern-position:${preset.position || "0 0"}`
     ].join(";");
 }
 
@@ -1348,7 +1606,9 @@ function buildCategoryRegistry(bingos) {
         if (!key || key === normalizeCategoryName("Sans catégorie") || isReservedCategoryName(name)) return;
         if (byKey[key]) return;
         const color = normalizeHexColor(bingo?.categoryColor, "#CC0000");
-        const entry = { name, key, color };
+        const pattern = normalizeCategoryPatternKey(bingo?.categoryPattern, "none");
+        const patternZoom = normalizePatternZoom(bingo?.categoryPatternZoom, 1, pattern);
+        const entry = { name, key, color, pattern, patternZoom };
         byKey[key] = entry;
         list.push(entry);
     });
@@ -1359,27 +1619,74 @@ function buildCategoryRegistry(bingos) {
     };
 }
 
-function buildCategoryTagMarkup(category, color, extraClass = "") {
+function buildCategoryTagMarkup(category, color, pattern = "none", extraClass = "") {
     const className = ["tag-category", extraClass].filter(Boolean).join(" ");
-    return `<span class="${className}" style="${buildCategoryInlineStyle(color)}">${escapeHtml(category || "Sans catégorie")}</span>`;
+    return `<span class="${className}" style="${buildCategoryInlineStyle(color, pattern)}">${escapeHtml(category || "Sans catégorie")}</span>`;
 }
 
 function buildHeaderTagMarkup(text) {
     return `<span class="header-tag header-tag-live">${escapeHtml(text || "Bingo")}</span>`;
 }
 
-function applyBodyAccentTheme(color) {
+function startBodyThemeTransition() {
+    const body = document.body;
+    if (!body || prefersReducedMotion()) return;
+
+    const styles = getComputedStyle(body);
+    const prevRed = styles.getPropertyValue("--theme-red").trim() || "#CC0000";
+    const prevPatternImage = styles.getPropertyValue("--theme-pattern-image").trim() || "repeating-conic-gradient(rgba(0,0,0,0.06) 0% 25%, transparent 0% 50%)";
+    const prevPatternSize = styles.getPropertyValue("--theme-pattern-size").trim() || "40px 40px";
+    const prevPatternPosition = styles.getPropertyValue("--theme-pattern-position").trim() || "0 0";
+    const prevPatternOpacity = styles.getPropertyValue("--theme-pattern-opacity").trim() || "0.42";
+
+    body.style.setProperty("--theme-prev-red", prevRed);
+    body.style.setProperty("--theme-prev-pattern-image", prevPatternImage);
+    body.style.setProperty("--theme-prev-pattern-size", prevPatternSize);
+    body.style.setProperty("--theme-prev-pattern-position", prevPatternPosition);
+    body.style.setProperty("--theme-prev-pattern-opacity", prevPatternOpacity);
+    body.style.setProperty("--theme-prev-opacity", prevPatternOpacity);
+
+    window.requestAnimationFrame(() => {
+        body.style.setProperty("--theme-prev-opacity", "0");
+    });
+
+    if (themeTransitionTimeout) clearTimeout(themeTransitionTimeout);
+    themeTransitionTimeout = window.setTimeout(() => {
+        body.style.removeProperty("--theme-prev-red");
+        body.style.removeProperty("--theme-prev-pattern-image");
+        body.style.removeProperty("--theme-prev-pattern-size");
+        body.style.removeProperty("--theme-prev-pattern-position");
+        body.style.removeProperty("--theme-prev-pattern-opacity");
+        body.style.removeProperty("--theme-prev-opacity");
+    }, 360);
+}
+
+function applyBodyAccentTheme(color, pattern = "none", zoom = 1) {
     const body = document.body;
     if (!body) return;
+    startBodyThemeTransition();
     const base = normalizeHexColor(color, "#CC0000");
     const onBase = getReadableTextColor(base);
     const isLightBase = onBase === "#111111";
+    const preset = getCategoryPatternPresetByKey(normalizeCategoryPatternKey(pattern, "none"));
 
     body.style.setProperty("--theme-red", base);
     body.style.setProperty("--theme-red-dark", darkenHexColor(base, 22));
     body.style.setProperty("--theme-error", isLightBase ? darkenHexColor(base, 55) : base);
     body.style.setProperty("--theme-on-red", onBase);
     body.style.setProperty("--theme-on-red-soft", hexToRgba(onBase, 0.72));
+    if (preset.key === "none") {
+        body.style.setProperty("--theme-pattern-image", "none");
+        body.style.setProperty("--theme-pattern-size", "auto");
+        body.style.setProperty("--theme-pattern-position", "0 0");
+        body.style.setProperty("--theme-pattern-opacity", "0");
+    } else {
+        const normalizedZoom = normalizePatternZoom(zoom, getSmallestPatternZoom(preset.key), preset.key);
+        body.style.setProperty("--theme-pattern-image", preset.image);
+        body.style.setProperty("--theme-pattern-size", scalePatternSize(preset.size || "40px 40px", normalizedZoom));
+        body.style.setProperty("--theme-pattern-position", preset.position || "0 0");
+        body.style.setProperty("--theme-pattern-opacity", "0.42");
+    }
     body.style.setProperty("--header-tag-bg", base);
     body.style.setProperty("--header-tag-text", onBase);
 }
@@ -1387,11 +1694,16 @@ function applyBodyAccentTheme(color) {
 function resetBodyAccentTheme() {
     const body = document.body;
     if (!body) return;
+    startBodyThemeTransition();
     body.style.removeProperty("--theme-red");
     body.style.removeProperty("--theme-red-dark");
     body.style.removeProperty("--theme-error");
     body.style.removeProperty("--theme-on-red");
     body.style.removeProperty("--theme-on-red-soft");
+    body.style.removeProperty("--theme-pattern-image");
+    body.style.removeProperty("--theme-pattern-size");
+    body.style.removeProperty("--theme-pattern-position");
+    body.style.removeProperty("--theme-pattern-opacity");
     body.style.removeProperty("--header-tag-bg");
     body.style.removeProperty("--header-tag-text");
 }
@@ -1471,7 +1783,7 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
     el.innerHTML = bingos.map(b => `
         <article class="bingo-card" data-id="${b.id}" tabindex="0" role="button" aria-label="Ouvrir le bingo ${b.title}">
             <div class="bingo-card-meta">
-                ${buildCategoryTagMarkup(b.category, b.categoryColor)}
+                ${buildCategoryTagMarkup(b.category, b.categoryColor, b.categoryPattern)}
                 <span class="tag-size">${b.size}x${b.size}</span>
             </div>
             <h3 class="bingo-card-title">${b.title}</h3>
@@ -1585,6 +1897,10 @@ async function renderCreateView(editId = null) {
     const selectedCategoryColor = normalizeHexColor(
         selectedCategoryEntry?.color ?? draft?.categoryColor ?? existing?.categoryColor ?? "#CC0000"
     );
+    const selectedCategoryPattern = normalizeCategoryPatternKey(
+        selectedCategoryEntry?.pattern ?? draft?.categoryPattern ?? existing?.categoryPattern ?? "none",
+        "none"
+    );
     const size = draft?.size || existing?.size || 3;
     const main = document.querySelector(".view-create .create-body");
     if (!main) return;
@@ -1615,10 +1931,19 @@ async function renderCreateView(editId = null) {
                                  value="${hasCustomCategory ? effectiveSelectedCategory : ""}" maxlength="50"
                                  aria-describedby="hint-cat">
                     <div class="category-color-config ${selectedCategoryValue === "__new__" ? "" : "hidden"}" id="category-color-config">
-                        <label for="f-category-color">Couleur de la catégorie</label>
-                        <div class="category-color-controls">
-                            <input type="color" id="f-category-color" name="f-category-color" value="${selectedCategoryColor}" aria-label="Choisir une couleur de catégorie">
-                            <input type="text" id="f-category-color-hex" name="f-category-color-hex" value="${selectedCategoryColor}" maxlength="7" pattern="^#?[A-Fa-f0-9]{3}([A-Fa-f0-9]{3})?$" aria-label="Valeur hexadécimale de la couleur de catégorie">
+                        <label for="f-category-color">Personnalisation de la catégorie</label>
+                        <div class="category-personalization-config">
+                            <div class="category-color-controls">
+                                <input type="color" id="f-category-color" name="f-category-color" value="${selectedCategoryColor}" aria-label="Choisir une couleur de catégorie">
+                                <input type="text" id="f-category-color-hex" name="f-category-color-hex" value="${selectedCategoryColor}" maxlength="7" pattern="^#?[A-Fa-f0-9]{3}([A-Fa-f0-9]{3})?$" aria-label="Valeur hexadécimale de la couleur de catégorie">
+                            </div>
+                            <div class="category-pattern-config" id="category-pattern-config">
+                                <label for="f-category-pattern">Motif de fond</label>
+                                <select id="f-category-pattern" name="f-category-pattern" aria-label="Choisir un motif de fond pour la catégorie">
+                                    ${buildCategoryPatternOptions(selectedCategoryPattern)}
+                                </select>
+                            </div>
+                            <div class="category-pattern-preview" id="f-category-pattern-preview" aria-hidden="true"></div>
                         </div>
                     </div>
                 </div>
@@ -1668,10 +1993,15 @@ async function renderCreateView(editId = null) {
         customInput.classList.toggle("hidden", !isCustom);
         if (isCustom) customInput.focus();
         if (!isCustom) {
-            const detectedColor = categoryRegistry.byKey[normalizeCategoryName(e.target.value || "")]?.color;
+            const detectedEntry = categoryRegistry.byKey[normalizeCategoryName(e.target.value || "")];
+            const detectedColor = detectedEntry?.color;
             if (detectedColor) {
                 const colorInput = document.getElementById("f-category-color");
                 if (colorInput) colorInput.value = normalizeHexColor(detectedColor);
+            }
+            const patternSelect = document.getElementById("f-category-pattern");
+            if (patternSelect) {
+                patternSelect.value = normalizeCategoryPatternKey(detectedEntry?.pattern, "none");
             }
         }
         updateCategoryPreview();
@@ -1684,7 +2014,9 @@ async function renderCreateView(editId = null) {
         const customInput = document.getElementById("f-category-new");
         const colorInput = document.getElementById("f-category-color");
         const colorHexInput = document.getElementById("f-category-color-hex");
-        if (!colorInput || !colorHexInput || !select || !customInput) return;
+        const patternSelect = document.getElementById("f-category-pattern");
+        const patternPreview = document.getElementById("f-category-pattern-preview");
+        if (!colorInput || !colorHexInput || !patternSelect || !select || !customInput) return;
 
         const isCustom = select.value === "__new__";
         const categoryRaw = isCustom ? customInput.value : select.value;
@@ -1697,6 +2029,9 @@ async function renderCreateView(editId = null) {
         const resolvedColor = shouldLockColor
             ? normalizeHexColor(matchedEntry?.color || "#CC0000")
             : normalizedColor;
+        const resolvedPattern = shouldLockColor
+            ? normalizeCategoryPatternKey(matchedEntry?.pattern, "none")
+            : normalizeCategoryPatternKey(patternSelect.value, "none");
 
         colorInput.value = resolvedColor;
         if (source !== "hex" || document.activeElement !== colorHexInput || shouldLockColor) {
@@ -1704,16 +2039,23 @@ async function renderCreateView(editId = null) {
         }
         colorInput.disabled = shouldLockColor;
         colorHexInput.disabled = shouldLockColor;
+        patternSelect.disabled = shouldLockColor;
+        patternSelect.value = resolvedPattern;
+        const zoom = getSmallestPatternZoom(resolvedPattern);
+        applyPatternPreview(patternPreview, resolvedPattern, {
+            color: resolvedColor,
+            zoom
+        });
         if (categoryColorConfig) {
             categoryColorConfig.classList.toggle("hidden", shouldLockColor);
         }
 
         // Live theme preview for the whole create page while editing color.
-        applyBodyAccentTheme(resolvedColor);
+        applyBodyAccentTheme(resolvedColor, resolvedPattern, zoom);
 
         if (liveTag) {
             liveTag.textContent = getCreateCategoryValue().trim() || "Sans catégorie";
-            liveTag.style.cssText = buildCategoryInlineStyle(resolvedColor);
+            liveTag.style.cssText = buildCategoryInlineStyle(resolvedColor, resolvedPattern, zoom);
         }
     }
 
@@ -1745,6 +2087,10 @@ async function renderCreateView(editId = null) {
         updateCategoryPreview("hex");
         saveCreateDraft(editId);
     });
+    document.getElementById("f-category-pattern")?.addEventListener("change", () => {
+        updateCategoryPreview("pattern");
+        saveCreateDraft(editId);
+    });
 
     updateCategoryPreview();
     document.getElementById("create-form")?.addEventListener("input", () => saveCreateDraft(editId));
@@ -1769,6 +2115,10 @@ async function handleSaveBingo(e, editId) {
     const rawCategory = getCreateCategoryValue().trim();
     let category = rawCategory || "Sans catégorie";
     let categoryColor = getCreateCategoryColorValue();
+    let categoryPattern = getCreateCategoryPatternValue();
+    let categoryPatternZoom = getSmallestPatternZoom(categoryPattern);
+    if (!rawCategory) categoryPattern = "none";
+    if (!rawCategory) categoryPatternZoom = getSmallestPatternZoom("none");
     const size = parseInt(document.getElementById("f-size")?.value);
 
     if (!title) {
@@ -1813,6 +2163,8 @@ async function handleSaveBingo(e, editId) {
         if (matchedCategory) {
             category = matchedCategory.name;
             categoryColor = matchedCategory.color;
+            categoryPattern = normalizeCategoryPatternKey(matchedCategory.pattern, "none");
+            categoryPatternZoom = getSmallestPatternZoom(categoryPattern);
         }
 
         const normalize = str => (str || "").trim().toLowerCase();
@@ -1829,7 +2181,7 @@ async function handleSaveBingo(e, editId) {
         }
 
         if (editId) {
-            await updateDoc(bingoDocRef(editId), { title, category, categoryColor, size, cells, updatedAt: serverTimestamp() });
+            await updateDoc(bingoDocRef(editId), { title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells, updatedAt: serverTimestamp() });
             showToast("Bingo modifié avec succès.", "success");
         } else {
             if (all.length >= MAX_BINGOS) {
@@ -1841,6 +2193,8 @@ async function handleSaveBingo(e, editId) {
                 title,
                 category,
                 categoryColor,
+                categoryPattern,
+                categoryPatternZoom,
                 size,
                 cells,
                 markedCells: new Array(size * size).fill(false),
@@ -1887,7 +2241,11 @@ async function renderPlayView(bingoId) {
         return;
     }
 
-    applyBodyAccentTheme(bingo.categoryColor);
+    applyBodyAccentTheme(
+        bingo.categoryColor,
+        bingo.categoryPattern,
+        getSmallestPatternZoom(bingo.categoryPattern)
+    );
     liveMarkedCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
     await renderPlayBoard(bingo);
 }
