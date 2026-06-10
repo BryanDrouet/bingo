@@ -38,9 +38,22 @@
         if (!toast || toast.dataset.closing === "true") return;
         toast.dataset.closing = "true";
         toast.classList.add("toast--leave");
-        const remove = () => toast.remove();
-        toast.addEventListener("animationend", remove, { once: true });
-        setTimeout(remove, 400);
+        let removed = false;
+        const remove = () => {
+            if (removed) return;
+            removed = true;
+            toast.removeEventListener("animationend", onLeaveEnd);
+            toast.remove();
+        };
+        // Only the toast's own slide-out animation should trigger removal.
+        // animationend bubbles, so without this filter the progress bar's
+        // animationend would remove the toast before it slides out.
+        function onLeaveEnd(event) {
+            if (event.target !== toast || event.animationName !== "toastOut") return;
+            remove();
+        }
+        toast.addEventListener("animationend", onLeaveEnd);
+        setTimeout(remove, 500);
     }
 
     function trimOverflow(container) {
