@@ -92,6 +92,7 @@
                 await loadScript(`js/firebase-config.js?v=${cacheBust}`);
             }
 
+            await loadScript(`js/notifications.js?v=${cacheBust}`);
             await loadScript(`js/app.js?v=${cacheBust}`, { type: "module" });
         }
 

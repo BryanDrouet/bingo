@@ -355,20 +355,11 @@ function updateYears() {
     });
 }
 
-function showToast(message, type = "info") {
-    const container = document.getElementById("toast-container");
-    if (!container) return;
-    const iconMap = { success: "check-circle", error: "alert-circle", info: "info", warning: "alert-triangle" };
-    const toast = document.createElement("div");
-    toast.className = `toast toast-${type}`;
-    toast.setAttribute("role", "alert");
-    toast.innerHTML = `<i data-lucide="${iconMap[type] || "info"}" aria-hidden="true"></i><span>${message}</span>`;
-    container.appendChild(toast);
-    initIcons();
-    setTimeout(() => {
-        toast.classList.add("toast-hide");
-        setTimeout(() => toast.remove(), 280);
-    }, 3600);
+function showToast(message, type = "info", options = {}) {
+    if (window.Notify && typeof window.Notify.show === "function") {
+        return window.Notify.show(message, type, options);
+    }
+    console.warn("Système de notifications indisponible:", message);
 }
 
 function initCookieBanner() {
@@ -1000,11 +991,24 @@ async function handleSaveBingo(e, editId) {
     if (submit) submit.disabled = true;
 
     try {
+        const all = await fetchBingos();
+        const normalize = str => (str || "").trim().toLowerCase();
+        const isDuplicate = all.some(b =>
+            b.id !== editId &&
+            normalize(b.title) === normalize(title) &&
+            normalize(b.category) === normalize(category)
+        );
+        if (isDuplicate) {
+            showToast("Un bingo avec ce titre existe déjà dans cette catégorie.", "warning");
+            document.getElementById("f-title")?.focus();
+            if (submit) submit.disabled = false;
+            return;
+        }
+
         if (editId) {
             await updateDoc(bingoDocRef(editId), { title, category, size, cells, updatedAt: serverTimestamp() });
             showToast("Bingo modifié avec succès.", "success");
         } else {
-            const all = await fetchBingos();
             if (all.length >= MAX_BINGOS) {
                 showToast(`Limite de ${MAX_BINGOS} bingos atteinte.`, "warning");
                 if (submit) submit.disabled = false;
