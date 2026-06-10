@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
 import {
     getAuth,
+    EmailAuthProvider,
     GoogleAuthProvider,
     OAuthProvider,
     GithubAuthProvider,
@@ -8,14 +9,19 @@ import {
     signInWithPopup,
     signInWithRedirect,
     getRedirectResult,
+    fetchSignInMethodsForEmail,
     signInAnonymously,
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     sendPasswordResetEmail,
     signOut,
     updateProfile,
+    updatePassword,
     deleteUser,
     reauthenticateWithPopup,
+    reauthenticateWithCredential,
+    linkWithPopup,
+    linkWithCredential,
     onAuthStateChanged,
     browserLocalPersistence,
     setPersistence
@@ -595,6 +601,115 @@ function logStyledError(context, err, details, extra = {}) {
     console.groupEnd();
 }
 
+function getAuthErrorDetails(err, context = "la connexion", providerLabel = null) {
+    const code = extractErrorCode(err);
+    const isEmailPasswordProvider = providerLabel === "email/password" || providerLabel === "password";
+    const detailsByCode = {
+        "invalid-credential": {
+            userMessage: "Identifiants invalides.",
+            cause: isEmailPasswordProvider
+                ? "L'adresse e-mail n'est pas liée au mot de passe ou le mot de passe est incorrect."
+                : providerLabel
+                ? `Le fournisseur ${providerLabel} a refusé l'authentification ou n'a pas renvoyé de session valide.`
+                : "Le fournisseur d'authentification a refusé l'identifiant ou le jeton reçu.",
+            action: isEmailPasswordProvider
+                ? "Si cette adresse est liée à Google/GitHub/X, connecte-toi avec ce fournisseur puis ajoute un mot de passe dans la page Compte."
+                : "Vérifie le fournisseur activé, les domaines autorisés et le callback OAuth configuré dans X/Firebase."
+        },
+        "wrong-password": {
+            userMessage: "Mot de passe incorrect.",
+            cause: "Le mot de passe saisi ne correspond pas au compte Firebase.",
+            action: "Réessaie avec le bon mot de passe ou utilise la réinitialisation."
+        },
+        "user-not-found": {
+            userMessage: "Aucun compte ne correspond à cette adresse.",
+            cause: "L'adresse e-mail n'existe pas dans Firebase Auth.",
+            action: "Vérifie l'adresse saisie ou crée un compte."
+        },
+        "operation-not-allowed": {
+            userMessage: "Cette méthode de connexion n'est pas activée.",
+            cause: "Le fournisseur OAuth ou la connexion e-mail n'est pas autorisé dans Firebase Auth.",
+            action: "Active la méthode correspondante dans Firebase Console > Authentication > Sign-in method."
+        },
+        "unauthorized-domain": {
+            userMessage: "Domaine non autorisé.",
+            cause: "Le domaine courant n'est pas listé dans les domaines autorisés Firebase.",
+            action: "Ajoute le domaine du site dans Firebase Console > Authentication > Settings > Authorized domains."
+        },
+        "account-exists-with-different-credential": {
+            userMessage: "Compte déjà lié à une autre méthode.",
+            cause: "Firebase a trouvé un autre fournisseur déjà associé à cette adresse.",
+            action: "Connecte-toi avec l'autre méthode puis associe le fournisseur voulu."
+        },
+        "email-already-in-use": {
+            userMessage: "Adresse déjà utilisée.",
+            cause: "Un compte existe déjà avec cette adresse e-mail.",
+            action: "Connecte-toi avec une méthode existante ou utilise « Mot de passe oublié ? » si le compte a un mot de passe."
+        },
+        "provider-already-linked": {
+            userMessage: "Ce fournisseur est déjà lié.",
+            cause: "Le compte est déjà connecté à cette méthode d'authentification.",
+            action: "Aucune action requise."
+        },
+        "credential-already-in-use": {
+            userMessage: "Identifiants déjà utilisés.",
+            cause: "Ces identifiants sont déjà liés à un autre compte Firebase.",
+            action: "Connecte-toi à ce compte existant puis fusionne les données si nécessaire."
+        },
+        "requires-recent-login": {
+            userMessage: "Reconnectez-vous pour continuer.",
+            cause: "Cette action sensible nécessite une authentification récente.",
+            action: "Reconnecte-toi puis réessaie."
+        },
+        "weak-password": {
+            userMessage: "Mot de passe trop faible.",
+            cause: "Le mot de passe ne respecte pas la longueur minimale.",
+            action: "Utilise un mot de passe plus long (au moins 6 caractères)."
+        },
+        "popup-blocked": {
+            userMessage: "Fenêtre de connexion bloquée.",
+            cause: "Le navigateur ou une extension a bloqué la popup OAuth.",
+            action: "Autorise les popups pour ce site puis réessaie."
+        },
+        "popup-closed-by-user": {
+            userMessage: null,
+            cause: "La popup a été fermée avant la validation.",
+            action: "Relance simplement la connexion."
+        }
+    };
+
+    const fallback = {
+        userMessage: `Erreur pendant ${context}.`,
+        cause: err?.message || "Cause non précisée.",
+        action: "Consulte la console pour le détail technique."
+    };
+
+    const mapped = detailsByCode[code] || fallback;
+    return {
+        code,
+        providerLabel,
+        ...mapped,
+        rawMessage: String(err?.message || "")
+    };
+}
+
+function logAuthError(context, err, providerLabel = null, extra = {}) {
+    const details = getAuthErrorDetails(err, context, providerLabel);
+    const toastMessage = typeof extra?.toastMessage === "string"
+        ? extra.toastMessage
+        : details.userMessage;
+    const detailsExtra = { ...extra };
+    delete detailsExtra.toastMessage;
+
+    if (toastMessage) {
+        showToast(`${toastMessage} Voir la console (F12).`, "error");
+    }
+    logStyledError("Authentification", err, details, {
+        provider: providerLabel || "unknown",
+        ...detailsExtra
+    });
+}
+
 function handleFirestoreError(err) {
     const details = getFriendlyErrorDetails(err, "l'accès aux données");
     if (isBlockedByClient(err)) {
@@ -726,6 +841,8 @@ function updateDashboardSearchPlaceholder() {
 const OAUTH_PROVIDERS = {
     google: {
         label: "Google",
+        providerId: "google.com",
+        enabled: true,
         factory: () => {
             const provider = new GoogleAuthProvider();
             provider.setCustomParameters({ prompt: "select_account" });
@@ -735,20 +852,97 @@ const OAUTH_PROVIDERS = {
     },
     microsoft: {
         label: "Microsoft",
+        providerId: "microsoft.com",
+        enabled: false,
+        unavailableLabel: "Bientot",
         factory: () => new OAuthProvider("microsoft.com"),
         icon: `<svg class="provider-icon" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>`
     },
     github: {
         label: "GitHub",
+        providerId: "github.com",
+        enabled: true,
         factory: () => new GithubAuthProvider(),
         icon: `<svg class="provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.07.78 2.16v3.2c0 .31.21.67.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z"/></svg>`
     },
     twitter: {
         label: "X",
+        providerId: "twitter.com",
+        enabled: true,
         factory: () => new TwitterAuthProvider(),
         icon: `<svg class="provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.41l-5.8-7.58-6.64 7.58H.46l8.6-9.83L0 1.15h7.59l5.24 6.93zm-1.29 19.5h2.04L6.48 3.24H4.29z"/></svg>`
     }
 };
+
+const AUTH_PROVIDER_LABELS = {
+    password: "mot de passe",
+    "google.com": "Google",
+    "github.com": "GitHub",
+    "twitter.com": "X",
+    "microsoft.com": "Microsoft"
+};
+
+function getProviderLabel(providerId) {
+    return AUTH_PROVIDER_LABELS[providerId] || String(providerId || "").replace(/\.com$/i, "") || "inconnu";
+}
+
+function getProviderKeyById(providerId) {
+    return Object.keys(OAUTH_PROVIDERS).find(key => OAUTH_PROVIDERS[key]?.providerId === providerId) || null;
+}
+
+function getProviderFactoryById(providerId) {
+    const key = getProviderKeyById(providerId);
+    return key ? OAUTH_PROVIDERS[key] : null;
+}
+
+function getLinkedProviderIds(user = currentUser) {
+    return [...new Set((user?.providerData || []).map(entry => entry?.providerId).filter(Boolean))];
+}
+
+function hasPasswordProvider(user = currentUser) {
+    return getLinkedProviderIds(user).includes("password");
+}
+
+function joinWithConjunction(values) {
+    const items = [...new Set((values || []).filter(Boolean))];
+    if (!items.length) return "";
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return `${items[0]} et ${items[1]}`;
+    return `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`;
+}
+
+function formatAuthMethods(methods) {
+    return joinWithConjunction((methods || []).map(getProviderLabel));
+}
+
+function buildEmailAuthConflictMessage(methods = [], mode = "signin") {
+    const labels = formatAuthMethods(methods) || "un autre fournisseur";
+    const hasPassword = methods.includes("password");
+
+    if (mode === "signup") {
+        if (hasPassword && methods.length === 1) {
+            return "Cette adresse est déjà utilisée avec un mot de passe. Utilisez « Se connecter » ou « Mot de passe oublié ? ».";
+        }
+        if (hasPassword) {
+            return `Cette adresse est déjà liée à ${labels} et à un mot de passe. Utilisez une méthode existante pour vous connecter puis gérez le mot de passe dans la page Compte.`;
+        }
+        return `Cette adresse est déjà liée à ${labels}. Connectez-vous avec ce fournisseur puis ajoutez un mot de passe dans la page Compte.`;
+    }
+
+    if (mode === "signin" && methods.length && !hasPassword) {
+        return `Cette adresse est déjà liée à ${labels}, pas à un mot de passe. Utilisez ${labels} pour vous connecter, puis ajoutez un mot de passe dans la page Compte.`;
+    }
+
+    return null;
+}
+
+async function getSignInMethodsForEmailAddress(email) {
+    try {
+        return await fetchSignInMethodsForEmail(auth, email);
+    } catch {
+        return [];
+    }
+}
 
 let emailAuthMode = "signin";
 
@@ -780,9 +974,16 @@ async function renderLoginView() {
     emailAuthMode = "signin";
 
     const providerButtons = Object.entries(OAUTH_PROVIDERS).map(([key, meta]) => `
-        <button type="button" class="login-provider-btn" data-provider="${key}" aria-label="Se connecter avec ${meta.label}">
+        <button
+            type="button"
+            class="login-provider-btn${meta.enabled === false ? " login-provider-btn--soon" : ""}"
+            data-provider="${key}"
+            aria-label="Se connecter avec ${meta.label}"
+            ${meta.enabled === false ? `disabled aria-disabled="true" title="Connexion ${meta.label} bientot disponible"` : ""}
+        >
             ${meta.icon}
             <span>${meta.label}</span>
+            ${meta.enabled === false ? `<span class="provider-badge-soon" aria-hidden="true">${meta.unavailableLabel || "Bientot"}</span>` : ""}
         </button>
     `).join("");
 
@@ -865,11 +1066,11 @@ async function trySignIn(action, provider) {
                 await signInWithRedirect(auth, provider);
                 return true;
             } catch (e) {
-                console.error(e);
+                logAuthError(action, e, provider?.providerId || null, { mode: "redirect" });
+                return false;
             }
         }
-        const message = getAuthErrorMessage(code, action);
-        if (message) showToast(message, "error");
+        logAuthError(action, err, provider?.providerId || null, { mode: "popup" });
         return false;
     }
 }
@@ -877,6 +1078,10 @@ async function trySignIn(action, provider) {
 async function handleOAuthSignIn(key) {
     const meta = OAUTH_PROVIDERS[key];
     if (!meta) return;
+    if (meta.enabled === false) {
+        showToast(`Connexion ${meta.label} bientot disponible.`, "info");
+        return;
+    }
     const btn = document.querySelector(`.login-provider-btn[data-provider="${key}"]`);
     if (btn) btn.disabled = true;
     const ok = await trySignIn(`la connexion ${meta.label}`, meta.factory());
@@ -926,8 +1131,21 @@ async function handleEmailAuth(e) {
             await signInWithEmailAndPassword(auth, email, password);
         }
     } catch (err) {
-        const message = getAuthErrorMessage(err?.code, "la connexion e-mail");
-        if (message) showToast(message, "error");
+        const code = extractErrorCode(err);
+        let toastMessage;
+
+        if (email && (code === "invalid-credential" || code === "email-already-in-use")) {
+            const methods = await getSignInMethodsForEmailAddress(email);
+            toastMessage = buildEmailAuthConflictMessage(methods, emailAuthMode);
+            if (!toastMessage && code === "invalid-credential" && methods.includes("password")) {
+                toastMessage = "Adresse e-mail ou mot de passe incorrect.";
+            }
+        }
+
+        logAuthError("la connexion e-mail", err, "email/password", {
+            mode: emailAuthMode,
+            toastMessage
+        });
         if (submit) submit.disabled = false;
     }
 }
@@ -1161,6 +1379,65 @@ async function renderAccountView() {
                 </section>
     ` : "";
 
+    const linkedProviders = getLinkedProviderIds(currentUser);
+    const oauthProviderIds = ["google.com", "github.com", "twitter.com", "microsoft.com"];
+    const providerRowsMarkup = oauthProviderIds.map(providerId => {
+        const providerMeta = getProviderFactoryById(providerId);
+        const isLinked = linkedProviders.includes(providerId);
+        const isUnavailable = !providerMeta || providerMeta.enabled === false;
+        const buttonDisabled = isLinked || isUnavailable || isAnonymous;
+        const badgeClass = isLinked ? "is-linked" : "is-unlinked";
+        const badgeLabel = isLinked ? "Lié" : "Non lié";
+        const buttonText = isLinked ? "Déjà lié" : (isUnavailable ? "Indisponible" : `Lier ${getProviderLabel(providerId)}`);
+
+        return `
+            <li class="account-connection-item">
+                <div class="account-connection-meta">
+                    <span class="account-connection-label">${escapeHtml(getProviderLabel(providerId))}</span>
+                    <span class="account-connection-badge ${badgeClass}">${badgeLabel}</span>
+                </div>
+                <button type="button" class="btn btn--neutral btn--sm account-link-provider-btn" data-provider-id="${providerId}" ${buttonDisabled ? "disabled" : ""}>${escapeHtml(buttonText)}</button>
+            </li>
+        `;
+    }).join("");
+
+    const linkedPassword = linkedProviders.includes("password");
+    const passwordSectionMarkup = isAnonymous
+        ? `<p class="form-required-note">Connectez-vous avec un compte pour lier des réseaux et gérer un mot de passe.</p>`
+        : `
+            <form id="account-password-form" class="account-form account-password-form" novalidate>
+                <p class="form-required-note">${linkedPassword
+                    ? "Modifiez votre mot de passe."
+                    : "Ajoutez un mot de passe pour pouvoir vous connecter aussi par e-mail."}</p>
+                <div class="form-row form-row-2">
+                    ${email ? "" : `
+                        <div class="form-group">
+                            <label for="account-password-email">Adresse e-mail</label>
+                            <input id="account-password-email" name="accountPasswordEmail" type="email" autocomplete="email" placeholder="vous@exemple.com" required>
+                        </div>
+                    `}
+                    ${linkedPassword ? `
+                        <div class="form-group">
+                            <label for="account-password-current">Mot de passe actuel</label>
+                            <input id="account-password-current" name="accountPasswordCurrent" type="password" autocomplete="current-password" minlength="6" placeholder="Mot de passe actuel" required>
+                        </div>
+                    ` : ""}
+                    <div class="form-group">
+                        <label for="account-password-next">${linkedPassword ? "Nouveau mot de passe" : "Mot de passe"}</label>
+                        <input id="account-password-next" name="accountPasswordNext" type="password" autocomplete="new-password" minlength="6" placeholder="6 caractères minimum" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="account-password-confirm">Confirmer le mot de passe</label>
+                        <input id="account-password-confirm" name="accountPasswordConfirm" type="password" autocomplete="new-password" minlength="6" placeholder="Confirmer le mot de passe" required>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn--primary">${linkedPassword ? "Mettre à jour le mot de passe" : "Définir un mot de passe"}</button>
+                    ${email ? `<button type="button" id="account-password-reset-btn" class="btn btn--neutral">Envoyer un e-mail de réinitialisation</button>` : ""}
+                </div>
+            </form>
+        `;
+
     await replaceAppMarkup(`
         <div class="view view-account">
             <header class="app-header">
@@ -1199,6 +1476,15 @@ async function renderAccountView() {
                 </section>
 
                 <section class="account-card" aria-labelledby="account-categories-title">
+                    <h2 id="account-connections-title" class="form-section-title">Connexions et mot de passe</h2>
+                    <p class="form-required-note">Liez vos comptes sociaux et gérez l'authentification par e-mail.</p>
+                    <ul class="account-connections-list" aria-label="Fournisseurs liés au compte">
+                        ${providerRowsMarkup}
+                    </ul>
+                    ${passwordSectionMarkup}
+                </section>
+
+                <section class="account-card" aria-labelledby="account-categories-title">
                     <h2 id="account-categories-title" class="form-section-title">Catégories</h2>
                     <p class="form-required-note">Renommez vos catégories et personnalisez leur couleur. Les modifications s'appliquent à tous les bingos concernés.</p>
                     <div id="account-category-manager" class="category-manager-panel account-category-manager" aria-label="Gestion des catégories"></div>
@@ -1221,6 +1507,11 @@ async function renderAccountView() {
     });
     document.getElementById("signout-account-btn")?.addEventListener("click", handleSignOut);
     document.getElementById("account-profile-form")?.addEventListener("submit", handleAccountProfileSubmit);
+    document.querySelectorAll(".account-link-provider-btn").forEach(button => {
+        button.addEventListener("click", () => handleAccountProviderLink(button.dataset.providerId));
+    });
+    document.getElementById("account-password-form")?.addEventListener("submit", handleAccountPasswordSubmit);
+    document.getElementById("account-password-reset-btn")?.addEventListener("click", handleAccountPasswordResetFromAccount);
     document.getElementById("purge-data-btn")?.addEventListener("click", handlePurgeUserData);
     document.getElementById("delete-account-btn")?.addEventListener("click", handleDeleteAccount);
 
@@ -1447,6 +1738,137 @@ async function handleAccountProfileSubmit(event) {
             hasPhotoUrl: Boolean(document.getElementById("account-photo-url")?.value)
         });
         if (submitButton) submitButton.disabled = false;
+    }
+}
+
+async function handleAccountProviderLink(providerId) {
+    if (!currentUser) return;
+    if (currentUser.isAnonymous) {
+        showToast("Connectez-vous avec un compte pour lier des fournisseurs.", "warning");
+        return;
+    }
+
+    const providerMeta = getProviderFactoryById(providerId);
+    const linkedProviders = getLinkedProviderIds(currentUser);
+    if (!providerMeta || providerMeta.enabled === false) {
+        showToast(`Liaison ${getProviderLabel(providerId)} indisponible pour le moment.`, "info");
+        return;
+    }
+    if (linkedProviders.includes(providerId)) {
+        showToast(`${getProviderLabel(providerId)} est déjà lié.`, "info");
+        return;
+    }
+
+    const button = document.querySelector(`.account-link-provider-btn[data-provider-id="${providerId}"]`);
+    if (button) button.disabled = true;
+
+    try {
+        await linkWithPopup(currentUser, providerMeta.factory());
+        showToast(`${getProviderLabel(providerId)} a été lié à votre compte.`, "success");
+        await renderAccountView();
+    } catch (err) {
+        const code = extractErrorCode(err);
+        if (code === "popup-closed-by-user" || code === "cancelled-popup-request") {
+            if (button && document.body.contains(button)) button.disabled = false;
+            return;
+        }
+        logAuthError("la liaison de compte", err, providerId, { mode: "link-provider" });
+        if (button && document.body.contains(button)) button.disabled = false;
+    }
+}
+
+async function handleAccountPasswordSubmit(event) {
+    event.preventDefault();
+    if (!currentUser || currentUser.isAnonymous) return;
+
+    const form = event.currentTarget;
+    const submitButton = form?.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+
+    const linkedPassword = hasPasswordProvider(currentUser);
+    const email = String(currentUser.email || document.getElementById("account-password-email")?.value || "").trim();
+    const currentPassword = String(document.getElementById("account-password-current")?.value || "");
+    const nextPassword = String(document.getElementById("account-password-next")?.value || "");
+    const confirmPassword = String(document.getElementById("account-password-confirm")?.value || "");
+
+    if (!email) {
+        showToast("Ajoutez une adresse e-mail pour définir un mot de passe.", "warning");
+        if (submitButton) submitButton.disabled = false;
+        return;
+    }
+    if (nextPassword.length < 6) {
+        showToast("Le mot de passe doit contenir au moins 6 caractères.", "warning");
+        if (submitButton) submitButton.disabled = false;
+        return;
+    }
+    if (nextPassword !== confirmPassword) {
+        showToast("La confirmation du mot de passe ne correspond pas.", "warning");
+        if (submitButton) submitButton.disabled = false;
+        return;
+    }
+    if (linkedPassword && !currentPassword) {
+        showToast("Saisissez votre mot de passe actuel.", "warning");
+        if (submitButton) submitButton.disabled = false;
+        return;
+    }
+
+    try {
+        if (linkedPassword) {
+            const credential = EmailAuthProvider.credential(email, currentPassword);
+            await reauthenticateWithCredential(currentUser, credential);
+            await updatePassword(currentUser, nextPassword);
+            showToast("Mot de passe mis à jour.", "success");
+            form?.reset();
+        } else {
+            const existingMethods = await getSignInMethodsForEmailAddress(email);
+            if (existingMethods.length) {
+                const conflictMessage = buildEmailAuthConflictMessage(existingMethods, "signup")
+                    || `Cette adresse est déjà liée à ${formatAuthMethods(existingMethods)}.`;
+                showToast(conflictMessage, "warning");
+                if (submitButton) submitButton.disabled = false;
+                return;
+            }
+
+            const credential = EmailAuthProvider.credential(email, nextPassword);
+            await linkWithCredential(currentUser, credential);
+            showToast("Mot de passe ajouté à votre compte.", "success");
+            await renderAccountView();
+            return;
+        }
+    } catch (err) {
+        const code = extractErrorCode(err);
+        let toastMessage;
+
+        if (code === "invalid-credential" && linkedPassword) {
+            toastMessage = "Mot de passe actuel incorrect.";
+        }
+
+        if (code === "email-already-in-use" && email) {
+            const methods = await getSignInMethodsForEmailAddress(email);
+            toastMessage = buildEmailAuthConflictMessage(methods, "signup") || toastMessage;
+        }
+
+        logAuthError("la gestion du mot de passe", err, "email/password", {
+            mode: linkedPassword ? "change-password" : "set-password",
+            toastMessage
+        });
+    } finally {
+        if (submitButton && document.body.contains(submitButton)) submitButton.disabled = false;
+    }
+}
+
+async function handleAccountPasswordResetFromAccount() {
+    const email = String(currentUser?.email || "").trim();
+    if (!email) {
+        showToast("Aucune adresse e-mail liée à ce compte.", "warning");
+        return;
+    }
+
+    try {
+        await sendPasswordResetEmail(auth, email);
+        showToast("E-mail de réinitialisation envoyé.", "success");
+    } catch (err) {
+        logAuthError("l'envoi de l'e-mail de réinitialisation", err, "email/password", { mode: "account-reset-password" });
     }
 }
 
@@ -2660,9 +3082,7 @@ async function restoreAppState() {
 
 getRedirectResult(auth).catch(err => {
     if (err && err.code && err.code !== "auth/no-auth-event") {
-        const message = getAuthErrorMessage(err.code, "la connexion");
-        if (message) showToast(message, "error");
-        console.error(err);
+        logAuthError("la connexion", err, err?.providerId || null, { mode: "redirect-result" });
     }
 });
 

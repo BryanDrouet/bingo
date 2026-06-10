@@ -837,6 +837,64 @@ button {
     background: linear-gradient(180deg, #fff7f7 0%, #fff 100%);
 }
 
+.account-connections-list {
+    list-style: none;
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+}
+
+.account-connection-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 2px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background: var(--gray-50);
+}
+
+.account-connection-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.account-connection-label {
+    font-weight: 700;
+    color: var(--black-light);
+}
+
+.account-connection-badge {
+    font-size: 0.75rem;
+    font-weight: 800;
+    border-radius: 999px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.account-connection-badge.is-linked {
+    color: #14532d;
+    background: #dcfce7;
+    border-color: #86efac;
+}
+
+.account-connection-badge.is-unlinked {
+    color: #78350f;
+    background: #fef3c7;
+    border-color: #fcd34d;
+}
+
+.account-password-form {
+    gap: 16px;
+    border-top: 2px solid var(--gray-200);
+    padding-top: 16px;
+}
+
 .account-form {
     display: flex;
     flex-direction: column;
@@ -908,6 +966,17 @@ button {
     .view-account .account-body,
     .account-main {
         padding: 20px 12px 36px;
+    }
+}
+
+@media (max-width: 560px) {
+    .account-connection-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .account-link-provider-btn {
+        width: 100%;
     }
 }
 
@@ -1030,6 +1099,26 @@ button {
     box-shadow: none;
 }
 .login-provider-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.login-provider-btn--soon {
+    position: relative;
+    filter: grayscale(0.25);
+}
+
+.provider-badge-soon {
+    position: absolute;
+    top: -8px;
+    right: -6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--gray-200);
+    background: var(--gray-100);
+    color: var(--gray-700);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+}
 
 .provider-icon {
     width: 20px;
