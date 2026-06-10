@@ -2,9 +2,17 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/fireba
 import {
     getAuth,
     GoogleAuthProvider,
+    OAuthProvider,
+    FacebookAuthProvider,
+    GithubAuthProvider,
+    TwitterAuthProvider,
     signInWithPopup,
     signInWithRedirect,
     getRedirectResult,
+    signInAnonymously,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    sendPasswordResetEmail,
     signOut,
     updateProfile,
     deleteUser,
@@ -325,7 +333,10 @@ function isModifiedClick(event) {
 }
 
 function isLegalPagePath(pathname) {
-    return pathname.startsWith("/mentions-legales/") || pathname.startsWith("/politique-confidentialite/");
+    return pathname.startsWith("/mentions-legales/") ||
+        pathname.startsWith("/politique-confidentialite/") ||
+        pathname.startsWith("/suppression-donnees-utilisateur/") ||
+        pathname.startsWith("/conditions-de-service/");
 }
 
 function bindCrossPageHeaderTransitions() {
@@ -713,9 +724,74 @@ function updateDashboardSearchPlaceholder() {
 }
 
 
+const OAUTH_PROVIDERS = {
+    google: {
+        label: "Google",
+        factory: () => {
+            const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: "select_account" });
+            return provider;
+        },
+        icon: `<img src="/assets/google-favicon-2025.svg" alt="" class="provider-icon" aria-hidden="true">`
+    },
+    microsoft: {
+        label: "Microsoft",
+        factory: () => new OAuthProvider("microsoft.com"),
+        icon: `<svg class="provider-icon" viewBox="0 0 23 23" aria-hidden="true"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>`
+    },
+    facebook: {
+        label: "Facebook",
+        factory: () => new FacebookAuthProvider(),
+        icon: `<svg class="provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.41 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.5c-1.49 0-1.96.93-1.96 1.89v2.25h3.32l-.53 3.49h-2.8V24C19.62 23.1 24 18.1 24 12.07z"/></svg>`
+    },
+    github: {
+        label: "GitHub",
+        factory: () => new GithubAuthProvider(),
+        icon: `<svg class="provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.07.78 2.16v3.2c0 .31.21.67.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z"/></svg>`
+    },
+    twitter: {
+        label: "X",
+        factory: () => new TwitterAuthProvider(),
+        icon: `<svg class="provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.9 1.15h3.68l-8.04 9.19L24 22.85h-7.41l-5.8-7.58-6.64 7.58H.46l8.6-9.83L0 1.15h7.59l5.24 6.93zm-1.29 19.5h2.04L6.48 3.24H4.29z"/></svg>`
+    }
+};
+
+let emailAuthMode = "signin";
+
+function getAuthErrorMessage(code, context = "la connexion") {
+    const map = {
+        "auth/popup-closed-by-user": null,
+        "auth/cancelled-popup-request": null,
+        "auth/invalid-email": "Adresse e-mail invalide.",
+        "auth/user-disabled": "Ce compte a été désactivé.",
+        "auth/user-not-found": "Aucun compte ne correspond à cette adresse.",
+        "auth/wrong-password": "Mot de passe incorrect.",
+        "auth/invalid-credential": "Identifiants incorrects.",
+        "auth/email-already-in-use": "Un compte existe déjà avec cette adresse.",
+        "auth/weak-password": "Mot de passe trop faible (6 caractères minimum).",
+        "auth/missing-password": "Veuillez saisir un mot de passe.",
+        "auth/too-many-requests": "Trop de tentatives. Réessayez plus tard.",
+        "auth/network-request-failed": "Échec réseau. Vérifiez votre connexion.",
+        "auth/account-exists-with-different-credential": "Un compte existe déjà avec une autre méthode pour cette adresse.",
+        "auth/operation-not-allowed": "Cette méthode de connexion n'est pas activée.",
+        "auth/unauthorized-domain": "Domaine non autorisé dans la configuration Firebase."
+    };
+    if (code in map) return map[code];
+    return `Erreur pendant ${context}. Réessayez.`;
+}
+
 async function renderLoginView() {
     resetBodyAccentTheme();
     setCurrentViewState({ name: "login" });
+    emailAuthMode = "signin";
+
+    const providerButtons = Object.entries(OAUTH_PROVIDERS).map(([key, meta]) => `
+        <button type="button" class="login-provider-btn" data-provider="${key}" aria-label="Se connecter avec ${meta.label}">
+            ${meta.icon}
+            <span>${meta.label}</span>
+        </button>
+    `).join("");
+
     await replaceAppMarkup(`
         <div class="view view-login">
             <header class="app-header">
@@ -727,50 +803,172 @@ async function renderLoginView() {
                 </div>
             </header>
             <div class="login-body">
-                <div class="login-card">
+                <div class="login-card login-card--auth">
                     <h1>Bienvenue</h1>
-                    <p>Connectez-vous avec votre compte Google pour créer et gérer vos grilles de bingo interactives.</p>
-                    <button type="button" id="google-signin-btn" class="btn btn--neutral btn--lg btn--block" aria-label="Se connecter avec Google">
-                        <img src="/assets/google-favicon-2025.svg" alt="" class="img img--icon" aria-hidden="true">
-                        Se connecter avec Google
+                    <p>Choisissez une méthode pour créer et gérer vos grilles de bingo.</p>
+
+                    <div class="login-providers" role="group" aria-label="Connexion via un fournisseur">
+                        ${providerButtons}
+                    </div>
+
+                    <div class="login-divider"><span>ou par e-mail</span></div>
+
+                    <form id="email-auth-form" class="login-form" novalidate>
+                        <div class="form-group">
+                            <label for="login-email">Adresse e-mail</label>
+                            <input id="login-email" name="loginEmail" type="email" autocomplete="email" spellcheck="false" placeholder="vous@exemple.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Mot de passe</label>
+                            <input id="login-password" name="loginPassword" type="password" autocomplete="current-password" minlength="6" placeholder="6 caractères minimum" required>
+                        </div>
+                        <button type="submit" id="email-submit-btn" class="btn btn--primary btn--block">Se connecter</button>
+                        <div class="login-form-links">
+                            <button type="button" id="toggle-email-mode" class="link">Créer un compte</button>
+                            <button type="button" id="reset-password-btn" class="link">Mot de passe oublié ?</button>
+                        </div>
+                    </form>
+
+                    <div class="login-divider"><span>autres options</span></div>
+
+                    <button type="button" id="anon-signin-btn" class="btn btn--ghost-dark btn--block">
+                        <i data-lucide="user" aria-hidden="true"></i>
+                        Continuer en invité
                     </button>
                 </div>
             </div>
         </div>
     `);
-    document.getElementById("google-signin-btn")?.addEventListener("click", handleGoogleSignIn);
+
+    document.querySelectorAll(".login-provider-btn").forEach(btn => {
+        btn.addEventListener("click", () => handleOAuthSignIn(btn.dataset.provider));
+    });
+    document.getElementById("email-auth-form")?.addEventListener("submit", handleEmailAuth);
+    document.getElementById("toggle-email-mode")?.addEventListener("click", toggleEmailAuthMode);
+    document.getElementById("reset-password-btn")?.addEventListener("click", handlePasswordReset);
+    document.getElementById("anon-signin-btn")?.addEventListener("click", handleAnonymousSignIn);
+
     updateYears();
     initIcons();
 }
 
-async function handleGoogleSignIn() {
-    const btn = document.getElementById("google-signin-btn");
-    if (btn) btn.disabled = true;
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
+async function trySignIn(action, provider) {
     try {
         await signInWithPopup(auth, provider);
+        return true;
     } catch (err) {
         const code = err && err.code;
         if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-            if (btn) btn.disabled = false;
-            return;
+            return false;
         }
         if (
             code === "auth/popup-blocked" ||
             code === "auth/operation-not-supported-in-this-environment" ||
             code === "auth/web-storage-unsupported" ||
-            code === "auth/internal-error" ||
-            code === "auth/network-request-failed"
+            code === "auth/internal-error"
         ) {
             try {
                 await signInWithRedirect(auth, provider);
-                return;
+                return true;
             } catch (e) {
                 console.error(e);
             }
         }
-        showToast("Erreur lors de la connexion. Veuillez réessayer.", "error");
+        const message = getAuthErrorMessage(code, action);
+        if (message) showToast(message, "error");
+        return false;
+    }
+}
+
+async function handleOAuthSignIn(key) {
+    const meta = OAUTH_PROVIDERS[key];
+    if (!meta) return;
+    const btn = document.querySelector(`.login-provider-btn[data-provider="${key}"]`);
+    if (btn) btn.disabled = true;
+    const ok = await trySignIn(`la connexion ${meta.label}`, meta.factory());
+    if (!ok && btn) btn.disabled = false;
+}
+
+function toggleEmailAuthMode() {
+    emailAuthMode = emailAuthMode === "signin" ? "signup" : "signin";
+    const submit = document.getElementById("email-submit-btn");
+    const toggle = document.getElementById("toggle-email-mode");
+    const password = document.getElementById("login-password");
+    if (emailAuthMode === "signup") {
+        if (submit) submit.textContent = "Créer un compte";
+        if (toggle) toggle.textContent = "J'ai déjà un compte";
+        if (password) password.setAttribute("autocomplete", "new-password");
+    } else {
+        if (submit) submit.textContent = "Se connecter";
+        if (toggle) toggle.textContent = "Créer un compte";
+        if (password) password.setAttribute("autocomplete", "current-password");
+    }
+}
+
+async function handleEmailAuth(e) {
+    e.preventDefault();
+    const emailInput = document.getElementById("login-email");
+    const passwordInput = document.getElementById("login-password");
+    const submit = document.getElementById("email-submit-btn");
+    const email = (emailInput?.value || "").trim();
+    const password = passwordInput?.value || "";
+
+    if (!email) {
+        showToast("Veuillez saisir votre adresse e-mail.", "warning");
+        emailInput?.focus();
+        return;
+    }
+    if (password.length < 6) {
+        showToast("Le mot de passe doit contenir au moins 6 caractères.", "warning");
+        passwordInput?.focus();
+        return;
+    }
+
+    if (submit) submit.disabled = true;
+    try {
+        if (emailAuthMode === "signup") {
+            await createUserWithEmailAndPassword(auth, email, password);
+        } else {
+            await signInWithEmailAndPassword(auth, email, password);
+        }
+    } catch (err) {
+        const message = getAuthErrorMessage(err?.code, "la connexion e-mail");
+        if (message) showToast(message, "error");
+        if (submit) submit.disabled = false;
+    }
+}
+
+async function handlePasswordReset() {
+    const email = (document.getElementById("login-email")?.value || "").trim();
+    if (!email) {
+        showToast("Saisissez votre adresse e-mail puis cliquez sur « Mot de passe oublié ».", "warning");
+        document.getElementById("login-email")?.focus();
+        return;
+    }
+    try {
+        await sendPasswordResetEmail(auth, email);
+        showToast("E-mail de réinitialisation envoyé. Vérifiez votre boîte de réception.", "success");
+    } catch (err) {
+        const message = getAuthErrorMessage(err?.code, "l'envoi de l'e-mail");
+        if (message) showToast(message, "error");
+    }
+}
+
+async function handleAnonymousSignIn() {
+    const confirmed = await showAppModal({
+        title: "Continuer en invité",
+        message: "En mode invité, vos bingos sont liés uniquement à cet appareil et à ce navigateur. Si vous changez d'appareil, videz le cache ou la mémoire du navigateur, vos données ne pourront pas être récupérées ni transférées. Pour conserver vos bingos, préférez une connexion avec un compte.",
+        confirmText: "Continuer en invité",
+        cancelText: "Annuler"
+    });
+    if (!confirmed) return;
+    const btn = document.getElementById("anon-signin-btn");
+    if (btn) btn.disabled = true;
+    try {
+        await signInAnonymously(auth);
+    } catch (err) {
+        const message = getAuthErrorMessage(err?.code, "la connexion invité");
+        if (message) showToast(message, "error");
         if (btn) btn.disabled = false;
     }
 }
@@ -861,7 +1059,7 @@ async function renderDashboard(filterCategory = null, searchQuery = "") {
                     <div class="profile-menu" id="profile-menu">
                         <button type="button" id="account-btn" class="profile-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="profile-dropdown" aria-label="Ouvrir le menu du profil">
                             ${avatarHtml}
-                            <span class="user-display-name" aria-hidden="true">${currentUser.displayName || currentUser.email || ""}</span>
+                            <span class="user-display-name" aria-hidden="true">${currentUser.displayName || currentUser.email || (currentUser.isAnonymous ? "Invité" : "")}</span>
                             <i data-lucide="chevron-down" class="profile-caret" aria-hidden="true"></i>
                         </button>
                         <div class="profile-dropdown" id="profile-dropdown" role="menu" aria-label="Menu du profil" hidden>
@@ -960,6 +1158,14 @@ async function renderAccountView() {
     const displayName = currentUser?.displayName || "";
     const photoUrl = currentUser?.photoURL || "";
     const email = currentUser?.email || "";
+    const isAnonymous = !!currentUser?.isAnonymous;
+    const accountLabel = email || (isAnonymous ? "Session invité (locale à cet appareil)" : "Compte connecté");
+    const anonymousBanner = isAnonymous ? `
+                <section class="account-card account-card--warning" aria-labelledby="account-anon-title">
+                    <h2 id="account-anon-title" class="form-section-title">Mode invité</h2>
+                    <p class="form-required-note">Vos bingos sont liés uniquement à cet appareil et à ce navigateur. Si vous changez d'appareil, videz le cache ou la mémoire du navigateur, vos données seront définitivement perdues et ne seront pas transférées. Pour les conserver, déconnectez-vous puis reconnectez-vous avec un compte (Google, e-mail, etc.).</p>
+                </section>
+    ` : "";
 
     await replaceAppMarkup(`
         <div class="view view-account">
@@ -976,6 +1182,7 @@ async function renderAccountView() {
             </header>
 
             <main class="account-body">
+                ${anonymousBanner}
                 <section class="account-card" aria-labelledby="account-profile-title">
                     <h1 id="account-profile-title" class="form-section-title">Profil</h1>
                     <form id="account-profile-form" class="account-form" novalidate>
@@ -990,7 +1197,7 @@ async function renderAccountView() {
                                 <input id="account-photo-url" name="accountPhotoUrl" type="url" value="${escapeHtml(photoUrl)}" autocomplete="url" spellcheck="false" placeholder="https://...">
                             </div>
                         </div>
-                        <p class="account-email">Compte connecté: ${escapeHtml(email)}</p>
+                        <p class="account-email">Compte connecté: ${escapeHtml(accountLabel)}</p>
                         <div class="form-actions">
                             <button type="submit" class="btn btn--primary">Enregistrer le profil</button>
                         </div>
@@ -1285,7 +1492,7 @@ async function handleDeleteAccount() {
 
     const confirmed = await showAppModal({
         title: "Supprimer le compte",
-        message: "Le compte Google lié à Bingo et toutes vos données Bingo seront supprimés définitivement. Il ne s'agit pas d'un bannissement : vous pourrez recréer un compte avec la même adresse Google en vous reconnectant.",
+        message: "Votre compte lié à Bingo et toutes vos données Bingo seront supprimés définitivement. Il ne s'agit pas d'un bannissement : vous pourrez recréer un compte en vous reconnectant.",
         confirmText: "Supprimer",
         cancelText: "Annuler",
         confirmVariant: "danger"
@@ -1303,7 +1510,13 @@ async function handleDeleteAccount() {
             await deleteUser(currentUser);
         } catch (err) {
             if (err?.code !== "auth/requires-recent-login") throw err;
-            const provider = new GoogleAuthProvider();
+            const provider = getReauthProvider();
+            if (!provider) {
+                showToast("Pour des raisons de sécurité, reconnectez-vous puis relancez la suppression.", "warning");
+                clearPersistedAppState();
+                await signOut(auth);
+                return;
+            }
             await reauthenticateWithPopup(currentUser, provider);
             await deleteUser(currentUser);
         }
@@ -1315,6 +1528,22 @@ async function handleDeleteAccount() {
         logStyledError("Suppression compte", err, details, { uid: currentUser.uid });
         if (purgeButton) purgeButton.disabled = false;
         if (deleteButton) deleteButton.disabled = false;
+    }
+}
+
+function getReauthProvider() {
+    const providerId = currentUser?.providerData?.[0]?.providerId;
+    switch (providerId) {
+        case "google.com": {
+            const provider = new GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: "select_account" });
+            return provider;
+        }
+        case "facebook.com": return new FacebookAuthProvider();
+        case "github.com": return new GithubAuthProvider();
+        case "twitter.com": return new TwitterAuthProvider();
+        case "microsoft.com": return new OAuthProvider("microsoft.com");
+        default: return null;
     }
 }
 
@@ -2438,7 +2667,8 @@ async function restoreAppState() {
 
 getRedirectResult(auth).catch(err => {
     if (err && err.code && err.code !== "auth/no-auth-event") {
-        showToast("Échec de la connexion Google.", "error");
+        const message = getAuthErrorMessage(err.code, "la connexion");
+        if (message) showToast(message, "error");
         console.error(err);
     }
 });

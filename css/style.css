@@ -984,6 +984,109 @@ button {
 .login-card h1 { font-size: 2rem; font-weight: 900; }
 .login-card p { color: var(--gray-500); line-height: 1.6; }
 
+.login-card--auth {
+    max-width: 460px;
+    text-align: left;
+    gap: 18px;
+}
+
+.login-card--auth h1 { text-align: center; }
+.login-card--auth > p { text-align: center; }
+
+.login-providers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.login-provider-btn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+}
+
+.login-provider-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 11px 12px;
+    border: 2px solid var(--gray-200);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--black-light);
+    font-family: var(--font);
+    font-size: 0.9375rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color var(--dur), border-color var(--dur), box-shadow var(--dur), transform var(--dur);
+}
+.login-provider-btn:hover:not(:disabled) {
+    background: var(--gray-50);
+    border-color: var(--black-light);
+    box-shadow: 3px 3px 0 var(--black-light);
+    transform: translate(-1px, -1px);
+}
+.login-provider-btn:active:not(:disabled) {
+    transform: translate(1px, 1px);
+    box-shadow: none;
+}
+.login-provider-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.provider-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    object-fit: contain;
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--gray-400);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+.login-divider::before,
+.login-divider::after {
+    content: "";
+    flex: 1;
+    height: 2px;
+    background: var(--gray-200);
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.login-form-links {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.login-form-links .link {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--gray-700);
+}
+.login-form-links .link:hover { color: var(--red); }
+
+.account-card--warning {
+    background: linear-gradient(180deg, #fffaf0 0%, #fff 100%);
+    border-color: var(--warning);
+}
+.account-card--warning .form-section-title {
+    border-bottom-color: rgba(245, 158, 11, 0.35);
+}
+
+@media (max-width: 420px) {
+    .login-providers { grid-template-columns: 1fr; }
+}
+
 
 .view-dashboard .dashboard-body {
     flex: 1;
