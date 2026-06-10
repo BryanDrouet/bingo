@@ -49,6 +49,7 @@ html {
     -webkit-text-size-adjust: 100%;
     scrollbar-width: thin;
     scrollbar-color: var(--theme-red-dark) rgba(17, 17, 17, 0.28);
+    word-break: break-word;
 }
 
 body {
@@ -146,18 +147,15 @@ button {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    height: 44px;
-    padding: 0 10px;
+    padding: 10px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
     font-family: var(--font);
     font-size: 0.9375rem;
     font-weight: 700;
-    line-height: 1;
     color: var(--black);
     text-decoration: none;
-    white-space: nowrap;
     cursor: pointer;
     user-select: none;
     transition:
@@ -191,13 +189,13 @@ button {
 .btn--dark:hover:not(:disabled) { background: var(--theme-red); border-color: var(--theme-red); color: var(--theme-on-red); }
 
 
-.btn--sm { height: 36px; padding: 0 14px; font-size: 0.875rem; gap: 6px; }
-.btn--lg { height: 52px; padding: 0 26px; font-size: 1rem; gap: 12px; }
+.btn--sm { font-size: 0.875rem; gap: 6px; }
+.btn--lg { font-size: 1rem; gap: 12px; }
 
 
-.btn--icon { width: 44px; padding: 0; gap: 0; }
-.btn--sm.btn--icon { width: 36px; }
-.btn--lg.btn--icon { width: 52px; }
+.btn--icon { width: 44px; padding: 0; gap: 0; height: 44px !important; }
+.btn--sm.btn--icon { width: 36px; height: 36px !important; }
+.btn--lg.btn--icon { width: 52px; height: 52px !important; }
 
 .btn--round { border-radius: 999px; }
 .btn--block { width: 100%; }
@@ -211,10 +209,6 @@ button {
     z-index: 400;
 }
 .btn--fab:hover:not(:disabled) { transform: scale(1.06); }
-
-@media (max-width: 480px) {
-    .btn--fab { bottom: 14px; left: 14px; }
-}
 
 
 .app-header {
@@ -354,7 +348,7 @@ button {
     text-overflow: ellipsis;
     min-width: 0;
     flex: 0 1 auto;
-    max-width: min(50vw, 260px);
+    max-width: min(50vw, 400px);
     transition: color 180ms ease;
 }
 
@@ -484,8 +478,8 @@ button {
 }
 
 .category-manager-item {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr;
     gap: 14px;
     background: var(--gray-50);
     border: 2px solid var(--gray-200);
@@ -493,8 +487,21 @@ button {
     padding: 16px;
 }
 
+.category-manager-item .form-group,
+.category-manager-item .category-color-config {
+    min-width: 0;
+}
+
 .category-manager-item .category-color-config {
     margin-top: 0;
+}
+
+@media (min-width: 600px) {
+    .category-manager-item {
+        grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+        align-items: end;
+        column-gap: 16px;
+    }
 }
 
 .category-manager-name-input.is-invalid {
@@ -956,10 +963,6 @@ button {
         gap: 6px;
         flex-wrap: nowrap;
     }
-
-    .bingo-card-actions .js-play {
-        padding: 0 12px;
-    }
 }
 
 @media (max-width: 420px) {
@@ -1096,11 +1099,6 @@ button {
     margin-top: auto;
 }
 
-.bingo-card-actions .js-play {
-    width: auto;
-    flex: 0 0 auto;
-}
-
 .bingo-card-actions button,
 .form-actions button {
     border: none !important;
@@ -1180,7 +1178,7 @@ button {
     font-size: 0.8125rem;
 }
 
-.form-group input,
+.form-group input:not([type="color"]),
 .form-group select,
 .form-group textarea {
     padding: 10px 14px;
@@ -1249,10 +1247,9 @@ button {
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
-    width: 56px;
-    min-width: 56px;
     height: 40px;
     padding: 3px;
+    aspect-ratio: 1/1;
     border: 2px solid var(--gray-200);
     border-radius: var(--radius-sm);
     cursor: pointer;
@@ -1278,7 +1275,6 @@ button {
 
 #f-category-color-hex,
 .category-color-hex {
-    flex: 1;
     min-width: 0;
     padding: 10px 14px;
     border: 2px solid var(--gray-200);
@@ -1333,18 +1329,37 @@ button {
 
 .cell-editor-wrap { display: flex; flex-direction: column; gap: 3px; }
 .cell-editor-wrap label { font-size: 0.75rem; font-weight: 600; color: var(--gray-500); }
-.cell-editor-wrap textarea { resize: none; min-height: 72px; font-size: 0.8125rem; }
+.cell-editor-wrap textarea { resize: none; min-height: 72px; font-size: 0.8125rem; aspect-ratio: 1/1;}
 .cell-editor-wrap textarea::placeholder {
     opacity: 0.7;
 }
 
 .form-actions {
     display: flex;
-    gap: 12px;
-    justify-content: flex-end;
     flex-wrap: wrap;
+    gap: 12px;
     padding-top: 8px;
     border-top: 2px solid var(--gray-200);
+}
+
+@media (max-width: 480px) {
+    .form-actions {
+        flex-direction: column;
+    }
+
+    .form-actions .btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 760px) {
+    .account-danger-actions {
+        flex-direction: column;
+    }
+
+    .account-danger-actions .btn {
+        width: 100%;
+    }
 }
 
 
@@ -1459,6 +1474,87 @@ button {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+
+.app-boot {
+    position: fixed;
+    inset: 0;
+    z-index: 450;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    animation: appBootIn 220ms ease both;
+}
+
+#app:has(.app-boot) ~ #info-fab {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+}
+
+.app-boot-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    padding: 36px 48px;
+    max-width: calc(100vw - 48px);
+    background: var(--white);
+    border: 3px solid var(--black-light);
+    border-radius: var(--radius-lg);
+    box-shadow: 6px 6px 0 var(--black-light);
+    text-align: center;
+}
+
+.app-boot-brand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    --header-tag-bg: var(--theme-red);
+    --header-tag-text: var(--theme-on-red);
+}
+
+.app-boot-logo {
+    font-size: 1.75rem;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--black-light);
+}
+
+.app-boot-brand .header-tag {
+    --tag-h: 28px;
+    font-size: 0.78rem;
+}
+
+.app-boot-spinner {
+    width: 46px;
+    height: 46px;
+    border: 4px solid var(--gray-200);
+    border-top-color: var(--theme-red);
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+}
+
+.app-boot-text {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--gray-500);
+}
+
+@keyframes appBootIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-boot { animation: none; }
+    .app-boot-spinner { animation-duration: 1.4s; }
+}
+
 
 
 .cookie-banner {

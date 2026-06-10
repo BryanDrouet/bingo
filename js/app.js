@@ -93,6 +93,7 @@ let hasShownFinalWinModal = false;
 let currentViewState = null;
 let dashboardAllBingos = [];
 let dashboardSearchDebounceTimer = null;
+let dashboardSearchMediaQuery = null;
 let dashboardCategoryRegistry = { byKey: {}, list: [], colorByName: {} };
 const HEADER_TRANSITION_MS = 180;
 const VIEW_STATE_STORAGE_KEY = "bingo-view-state";
@@ -644,6 +645,15 @@ function handleDashboardSearchInput() {
     }, 120);
 }
 
+function updateDashboardSearchPlaceholder() {
+    const input = document.getElementById("dashboard-search");
+    if (!input) return;
+    const isSmallScreen = window.matchMedia("(max-width: 620px)").matches;
+    input.placeholder = isSmallScreen
+        ? "Rechercher"
+        : "Rechercher dans les titres, categories et contenus";
+}
+
 
 async function renderLoginView() {
     resetBodyAccentTheme();
@@ -774,6 +784,9 @@ function setupProfileMenu({ onAccount, onSignOut } = {}) {
 async function renderDashboard(filterCategory = null, searchQuery = "") {
     resetBodyAccentTheme();
     setCurrentViewState({ name: "dashboard", filterCategory: filterCategory || null, searchQuery: searchQuery || "", bingoId: null, editId: null });
+    const dashboardSearchPlaceholder = window.matchMedia("(max-width: 620px)").matches
+        ? "Rechercher"
+        : "Rechercher dans les titres, categories et contenus";
     const avatarHtml = currentUser.photoURL
         ? `<img src="${currentUser.photoURL}" alt="Photo de profil de ${currentUser.displayName || "utilisateur"}" class="img img--avatar">`
         : "";
@@ -815,13 +828,10 @@ async function renderDashboard(filterCategory = null, searchQuery = "") {
                     </div>
                     <div class="dashboard-search" role="search">
                         <label for="dashboard-search" class="sr-only">Rechercher dans les bingos</label>
-                        <input type="text" id="dashboard-search" class="dashboard-search-input" value="${searchQuery || ""}" placeholder="Rechercher dans les titres, categories et contenus" autocomplete="off" spellcheck="false">
+                        <input type="text" id="dashboard-search" class="dashboard-search-input" value="${searchQuery || ""}" placeholder="${dashboardSearchPlaceholder}" autocomplete="off" spellcheck="false">
                         <button type="button" id="clear-dashboard-search" class="btn btn--ghost-dark btn--sm">Effacer</button>
                     </div>
-                    <button type="button" id="create-bingo-btn" class="btn btn--primary">
-                        <i data-lucide="plus" aria-hidden="true"></i>
-                        Nouveau bingo
-                    </button>
+                    <button type="button" id="create-bingo-btn" class="btn btn--primary">Nouveau bingo</button>
                 </div>
                 <div class="bingo-cards-grid" id="bingo-list" aria-label="Vos grilles de bingo">
                     <div class="loading-state" style="grid-column:1/-1"><div class="loading-spinner"></div></div>
@@ -837,6 +847,12 @@ async function renderDashboard(filterCategory = null, searchQuery = "") {
         onSignOut: handleSignOut
     });
     document.getElementById("dashboard-search")?.addEventListener("input", handleDashboardSearchInput);
+    if (dashboardSearchMediaQuery) {
+        dashboardSearchMediaQuery.removeEventListener("change", updateDashboardSearchPlaceholder);
+    }
+    dashboardSearchMediaQuery = window.matchMedia("(max-width: 620px)");
+    dashboardSearchMediaQuery.addEventListener("change", updateDashboardSearchPlaceholder);
+    updateDashboardSearchPlaceholder();
     document.getElementById("clear-dashboard-search")?.addEventListener("click", () => {
         const input = document.getElementById("dashboard-search");
         if (!input) return;
@@ -898,11 +914,6 @@ async function renderAccountView() {
                         <span class="header-main-text">Bingo</span>
                         <span class="header-tag">Compte</span>
                     </div>
-                </div>
-                <div class="header-right">
-                    <button type="button" id="signout-account-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Se déconnecter">
-                        <i data-lucide="log-out" aria-hidden="true"></i>
-                    </button>
                 </div>
             </header>
 
@@ -1466,7 +1477,6 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
             <h3 class="bingo-card-title">${b.title}</h3>
             <div aria-hidden="true">${buildMiniPreview(b)}</div>
             <div class="bingo-card-actions">
-                <button type="button" class="btn btn--primary btn--sm js-play" data-id="${b.id}" aria-label="Jouer à ${b.title}">Jouer</button>
                 <button type="button" class="btn btn--neutral btn--sm btn--icon js-edit" data-id="${b.id}" aria-label="Modifier ${b.title}">
                     <i data-lucide="pencil" aria-hidden="true"></i>
                 </button>
@@ -1476,10 +1486,6 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
             </div>
         </article>
     `).join("");
-    el.querySelectorAll(".js-play").forEach(btn => btn.addEventListener("click", e => {
-        e.stopPropagation();
-        void navigateWithHeader(() => renderPlayView(btn.dataset.id));
-    }));
     el.querySelectorAll(".js-edit").forEach(btn => btn.addEventListener("click", e => {
         e.stopPropagation();
         void navigateWithHeader(() => renderCreateView(btn.dataset.id));
@@ -2074,3 +2080,4 @@ window.addEventListener("beforeunload", () => {
     persistCreateDraftIfNeeded();
 });
 window.addEventListener("pagehide", persistCreateDraftIfNeeded);
+window.addEventListener("resize", updateDashboardSearchPlaceholder);

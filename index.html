@@ -29,7 +29,18 @@
     </script>
 </head>
 <body>
-    <div id="app" aria-live="polite" aria-atomic="false"></div>
+    <div id="app" aria-live="polite" aria-atomic="false">
+        <div class="app-boot" role="status" aria-label="Chargement de l'application en cours">
+            <div class="app-boot-card">
+                <div class="app-boot-brand">
+                    <span class="app-boot-logo">Bingo</span>
+                    <span class="header-tag header-tag-live">Interactif</span>
+                </div>
+                <div class="app-boot-spinner" aria-hidden="true"></div>
+                <p class="app-boot-text">Chargement en cours&hellip;</p>
+            </div>
+        </div>
+    </div>
 
     <div id="cookie-banner" class="cookie-banner hidden" role="dialog" aria-label="Consentement aux cookies" aria-modal="true" aria-describedby="cookie-desc">
         <p id="cookie-desc">Ce site utilise des cookies essentiels pour l'authentification Google et la sauvegarde de vos données. <a href="/politique-confidentialite/" class="link link--muted">Politique de confidentialité</a></p>
