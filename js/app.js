@@ -816,7 +816,7 @@ async function renderDashboard(filterCategory = null, searchQuery = "") {
                     <div class="dashboard-search" role="search">
                         <label for="dashboard-search" class="sr-only">Rechercher dans les bingos</label>
                         <input type="text" id="dashboard-search" class="dashboard-search-input" value="${searchQuery || ""}" placeholder="Rechercher dans les titres, categories et contenus" autocomplete="off" spellcheck="false">
-                        <button type="button" id="clear-dashboard-search" class="btn btn--ghost-light btn--sm">Effacer</button>
+                        <button type="button" id="clear-dashboard-search" class="btn btn--ghost-dark btn--sm">Effacer</button>
                     </div>
                     <button type="button" id="create-bingo-btn" class="btn btn--primary">
                         <i data-lucide="plus" aria-hidden="true"></i>
