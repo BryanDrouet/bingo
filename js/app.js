@@ -22,6 +22,7 @@ import {
     reauthenticateWithCredential,
     linkWithPopup,
     linkWithCredential,
+    unlink,
     onAuthStateChanged,
     browserLocalPersistence,
     setPersistence
@@ -41,6 +42,13 @@ import {
     where,
     limit
 } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+import {
+    getStorage,
+    ref as storageRef,
+    uploadBytes,
+    getDownloadURL,
+    deleteObject
+} from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";
 
 const FIREBASE_CONFIG = window.__FIREBASE_CONFIG__ || {};
 
@@ -90,6 +98,7 @@ const MAX_BINGOS = 50;
 
 const firebaseApp = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(firebaseApp);
+const storage = getStorage(firebaseApp);
 const db = initializeFirestore(firebaseApp, {
     experimentalAutoDetectLongPolling: true,
     useFetchStreams: false
@@ -143,6 +152,21 @@ const PATTERN_ZOOM_RULES = {
     tartan: [1.5, 2],
     waves: [1]
 };
+const MAX_PROFILE_IMAGE_FILE_BYTES = 6 * 1024 * 1024;
+const PROFILE_AVATAR_OUTPUT_SIZE = 512;
+const PROFILE_AVATAR_CROP_BOX_SIZE = 180;
+const PROFILE_AVATAR_MIN_ZOOM = 1;
+const PROFILE_AVATAR_MAX_ZOOM = 3;
+const ALLOWED_PROFILE_IMAGE_MIME_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif"
+]);
+let pendingProfilePhotoFile = null;
+let pendingProfilePhotoObjectUrl = "";
+let pendingProfilePhotoCropState = null;
+let guestAvatarGenerationInFlight = false;
 
 function wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -1084,7 +1108,16 @@ async function handleOAuthSignIn(key) {
     }
     const btn = document.querySelector(`.login-provider-btn[data-provider="${key}"]`);
     if (btn) btn.disabled = true;
+    let settled = false;
+    const reenableOnFocus = () => {
+        if (!settled && btn) btn.disabled = false;
+    };
+    window.addEventListener("focus", reenableOnFocus, { once: true });
+
     const ok = await trySignIn(`la connexion ${meta.label}`, meta.factory());
+    settled = true;
+    window.removeEventListener("focus", reenableOnFocus);
+
     if (!ok && btn) btn.disabled = false;
 }
 
@@ -1256,7 +1289,7 @@ async function renderDashboard(filterCategory = null, searchQuery = "") {
         ? "Rechercher"
         : "Rechercher dans les titres, categories et contenus";
     const avatarHtml = currentUser.photoURL
-        ? `<img src="${currentUser.photoURL}" alt="Photo de profil de ${currentUser.displayName || "utilisateur"}" class="img img--avatar">`
+        ? `<img src="${escapeHtml(currentUser.photoURL)}" alt="Photo de profil de ${escapeHtml(currentUser.displayName || "utilisateur")}" class="img img--avatar">`
         : "";
     await replaceAppMarkup(`
         <div class="view view-dashboard">
@@ -1366,16 +1399,18 @@ function renderCategoryFilters(categories, active) {
 async function renderAccountView() {
     resetBodyAccentTheme();
     setCurrentViewState({ name: "account", bingoId: null, editId: null, filterCategory: null, searchQuery: "" });
+    resetPendingProfilePhotoState();
 
     const displayName = currentUser?.displayName || "";
     const photoUrl = currentUser?.photoURL || "";
     const email = currentUser?.email || "";
+    const avatarFallbackInitial = (displayName || email || "U").charAt(0).toUpperCase();
     const isAnonymous = !!currentUser?.isAnonymous;
     const accountLabel = email || (isAnonymous ? "Session invité (locale à cet appareil)" : "Compte connecté");
     const anonymousBanner = isAnonymous ? `
                 <section class="account-card account-card--warning" aria-labelledby="account-anon-title">
                     <h2 id="account-anon-title" class="form-section-title">Mode invité</h2>
-                    <p class="form-required-note">Vos bingos sont liés uniquement à cet appareil et à ce navigateur. Si vous changez d'appareil, videz le cache ou la mémoire du navigateur, vos données seront définitivement perdues et ne seront pas transférées. Pour les conserver, déconnectez-vous puis reconnectez-vous avec un compte (Google, e-mail, etc.).</p>
+                    <p class="form-required-note">Les données invité restent locales à cet appareil. Pour les conserver partout, connecte-toi avec un compte.</p>
                 </section>
     ` : "";
 
@@ -1385,10 +1420,14 @@ async function renderAccountView() {
         const providerMeta = getProviderFactoryById(providerId);
         const isLinked = linkedProviders.includes(providerId);
         const isUnavailable = !providerMeta || providerMeta.enabled === false;
-        const buttonDisabled = isLinked || isUnavailable || isAnonymous;
+        const canUnlink = linkedProviders.length > 1;
+        const buttonDisabled = isAnonymous || (isLinked ? !canUnlink : isUnavailable);
         const badgeClass = isLinked ? "is-linked" : "is-unlinked";
         const badgeLabel = isLinked ? "Lié" : "Non lié";
-        const buttonText = isLinked ? "Déjà lié" : (isUnavailable ? "Indisponible" : `Lier ${getProviderLabel(providerId)}`);
+        const buttonText = isLinked
+            ? (canUnlink ? "Délier" : "Conserver")
+            : (isUnavailable ? "Indisponible" : "Lier");
+        const action = isLinked ? "unlink" : "link";
 
         return `
             <li class="account-connection-item">
@@ -1396,7 +1435,7 @@ async function renderAccountView() {
                     <span class="account-connection-label">${escapeHtml(getProviderLabel(providerId))}</span>
                     <span class="account-connection-badge ${badgeClass}">${badgeLabel}</span>
                 </div>
-                <button type="button" class="btn btn--neutral btn--sm account-link-provider-btn" data-provider-id="${providerId}" ${buttonDisabled ? "disabled" : ""}>${escapeHtml(buttonText)}</button>
+                <button type="button" class="btn btn--neutral btn--sm account-provider-action-btn" data-provider-id="${providerId}" data-provider-action="${action}" ${buttonDisabled ? "disabled" : ""}>${escapeHtml(buttonText)}</button>
             </li>
         `;
     }).join("");
@@ -1457,22 +1496,78 @@ async function renderAccountView() {
                 <section class="account-card" aria-labelledby="account-profile-title">
                     <h1 id="account-profile-title" class="form-section-title">Profil</h1>
                     <form id="account-profile-form" class="account-form" novalidate>
-                        <p class="form-required-note">Modifiez votre pseudo et l'URL de votre photo de profil.</p>
-                        <div class="form-row form-row-2">
+                        <p class="form-required-note">Pseudo et photo synchronisés sur ton compte.</p>
+                        <div class="account-avatar-row">
+                            <button type="button" id="account-avatar-edit-btn" class="account-avatar-edit-btn" aria-label="Changer la photo de profil">
+                                <span id="account-avatar-preview-wrap">
+                                    ${photoUrl
+                                        ? `<img src="${escapeHtml(photoUrl)}" alt="Photo de profil de ${escapeHtml(displayName || "utilisateur")}" class="account-avatar" id="account-avatar-preview">`
+                                        : `<span class="account-avatar account-avatar--fallback" id="account-avatar-preview" aria-hidden="true">${escapeHtml(avatarFallbackInitial)}</span>`}
+                                </span>
+                                <span class="account-avatar-edit-overlay" aria-hidden="true">
+                                    <i data-lucide="pencil"></i>
+                                </span>
+                            </button>
+                            <div class="account-avatar-copy">
+                                <strong>Photo de profil</strong>
+                                <p>Clique sur la photo pour changer (URL, image locale, GIF).</p>
+                            </div>
+                        </div>
+                        <div class="form-row">
                             <div class="form-group">
                                 <label for="account-display-name">Pseudo</label>
                                 <input id="account-display-name" name="accountDisplayName" type="text" maxlength="60" value="${escapeHtml(displayName)}" autocomplete="name" spellcheck="false" placeholder="Votre pseudo">
                             </div>
-                            <div class="form-group">
-                                <label for="account-photo-url">Photo de profil (URL)</label>
-                                <input id="account-photo-url" name="accountPhotoUrl" type="url" value="${escapeHtml(photoUrl)}" autocomplete="url" spellcheck="false" placeholder="https://...">
-                            </div>
                         </div>
+                        <input id="account-photo-url" name="accountPhotoUrl" type="hidden" value="${escapeHtml(photoUrl)}">
                         <p class="account-email">Compte connecté: ${escapeHtml(accountLabel)}</p>
                         <div class="form-actions">
                             <button type="submit" class="btn btn--primary">Enregistrer le profil</button>
                         </div>
                     </form>
+
+                    <div id="account-photo-modal" class="account-photo-modal" hidden>
+                        <div class="account-photo-modal-backdrop" data-close-photo-modal="true"></div>
+                        <div class="account-photo-modal-content" role="dialog" aria-modal="true" aria-labelledby="account-photo-modal-title">
+                            <div class="account-photo-modal-header">
+                                <h3 id="account-photo-modal-title">Modifier la photo de profil</h3>
+                                <button type="button" id="account-photo-modal-close" class="btn btn--ghost-dark btn--sm" aria-label="Fermer">Fermer</button>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-photo-url-modal">Photo via URL</label>
+                                <input id="account-photo-url-modal" type="url" autocomplete="url" spellcheck="false" placeholder="https://...">
+                                <p class="form-help">Lien direct http(s), y compris .gif.</p>
+                            </div>
+                            <div class="form-actions">
+                                <button type="button" id="account-photo-url-apply" class="btn btn--neutral">Utiliser ce lien</button>
+                                <button type="button" id="account-photo-clear-btn" class="btn btn--neutral" ${photoUrl ? "" : "disabled"}>Retirer la photo</button>
+                            </div>
+                            <div class="form-group">
+                                <label for="account-photo-file">Importer une photo</label>
+                                <input id="account-photo-file" name="accountPhotoFile" type="file" accept="image/*" aria-describedby="account-photo-file-help">
+                                <p id="account-photo-file-help" class="form-help">JPEG, PNG, WEBP, GIF. Max 6 Mo.</p>
+                            </div>
+                            <div id="account-photo-cropper" class="account-photo-cropper" hidden>
+                                <div class="account-photo-crop-head">
+                                    <strong>Recadrage carré</strong>
+                                    <span>Déplace et zoome, puis applique.</span>
+                                </div>
+                                <div id="account-photo-crop-stage" class="account-photo-crop-stage" aria-label="Zone de recadrage">
+                                    <img id="account-photo-crop-image" class="account-photo-crop-image" alt="Prévisualisation du recadrage">
+                                    <div class="account-photo-crop-frame" aria-hidden="true"></div>
+                                </div>
+                                <div class="account-photo-crop-controls">
+                                    <label for="account-photo-crop-zoom">Zoom</label>
+                                    <input id="account-photo-crop-zoom" type="range" min="1" max="3" step="0.01" value="1">
+                                    <div class="form-actions">
+                                        <button type="button" id="account-photo-crop-reset" class="btn btn--neutral">Réinitialiser</button>
+                                        <button type="button" id="account-photo-crop-cancel" class="btn btn--ghost-dark">Annuler</button>
+                                        <button type="button" id="account-photo-crop-apply" class="btn btn--primary">Appliquer le recadrage</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <section class="account-card" aria-labelledby="account-categories-title">
@@ -1503,12 +1598,126 @@ async function renderAccountView() {
     `);
 
     document.getElementById("back-account-btn")?.addEventListener("click", () => {
+        resetPendingProfilePhotoState();
         void navigateWithHeader(() => renderDashboard());
     });
     document.getElementById("signout-account-btn")?.addEventListener("click", handleSignOut);
     document.getElementById("account-profile-form")?.addEventListener("submit", handleAccountProfileSubmit);
-    document.querySelectorAll(".account-link-provider-btn").forEach(button => {
-        button.addEventListener("click", () => handleAccountProviderLink(button.dataset.providerId));
+
+    const avatarEditBtn = document.getElementById("account-avatar-edit-btn");
+    const photoModal = document.getElementById("account-photo-modal");
+    const photoModalCloseBtn = document.getElementById("account-photo-modal-close");
+    const photoModalUrlInput = document.getElementById("account-photo-url-modal");
+    const PHOTO_MODAL_TRANSITION_MS = 180;
+    let photoModalCloseTimer = null;
+
+    const openPhotoModal = () => {
+        if (!photoModal) return;
+        if (photoModalCloseTimer) {
+            clearTimeout(photoModalCloseTimer);
+            photoModalCloseTimer = null;
+        }
+        photoModal.classList.remove("is-closing");
+        photoModal.hidden = false;
+        requestAnimationFrame(() => {
+            photoModal.classList.add("is-open");
+        });
+        if (photoModalUrlInput) {
+            photoModalUrlInput.value = String(document.getElementById("account-photo-url")?.value || "").trim();
+            photoModalUrlInput.focus();
+        }
+    };
+
+    const closePhotoModal = () => {
+        if (!photoModal) return;
+        photoModal.classList.remove("is-open");
+        photoModal.classList.add("is-closing");
+        if (photoModalCloseTimer) clearTimeout(photoModalCloseTimer);
+        photoModalCloseTimer = window.setTimeout(() => {
+            photoModal.hidden = true;
+            photoModal.classList.remove("is-closing");
+            if (!pendingProfilePhotoCropState) togglePhotoCropper(false);
+            photoModalCloseTimer = null;
+        }, PHOTO_MODAL_TRANSITION_MS);
+    };
+
+    avatarEditBtn?.addEventListener("click", openPhotoModal);
+    photoModalCloseBtn?.addEventListener("click", closePhotoModal);
+    photoModal?.addEventListener("click", event => {
+        if (event.target?.dataset?.closePhotoModal === "true") closePhotoModal();
+    });
+    if (photoModal && photoModal.dataset.boundEsc !== "1") {
+        photoModal.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !photoModal.hidden) closePhotoModal();
+        });
+        photoModal.dataset.boundEsc = "1";
+    }
+
+    document.getElementById("account-photo-file")?.addEventListener("change", handleAccountPhotoFileChange);
+    document.getElementById("account-photo-url-apply")?.addEventListener("click", () => {
+        const nextUrl = String(document.getElementById("account-photo-url-modal")?.value || "").trim();
+        if (nextUrl) {
+            try {
+                const parsed = new URL(nextUrl);
+                if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                    throw new Error("URL invalide");
+                }
+                const hiddenPhotoInput = document.getElementById("account-photo-url");
+                if (hiddenPhotoInput) hiddenPhotoInput.value = parsed.toString();
+            } catch {
+                showToast("URL de photo invalide.", "error");
+                return;
+            }
+        } else {
+            const hiddenPhotoInput = document.getElementById("account-photo-url");
+            if (hiddenPhotoInput) hiddenPhotoInput.value = "";
+        }
+        clearPendingProfilePhotoSelection();
+        togglePhotoCropper(false);
+        const clearBtn = document.getElementById("account-photo-clear-btn");
+        if (clearBtn) clearBtn.disabled = !String(document.getElementById("account-photo-url")?.value || "").trim();
+        updateAccountAvatarPreview();
+        closePhotoModal();
+    });
+    document.getElementById("account-display-name")?.addEventListener("input", () => {
+        const photoInput = String(document.getElementById("account-photo-url")?.value || "").trim();
+        if (!photoInput) updateAccountAvatarPreview();
+    });
+    document.getElementById("account-photo-clear-btn")?.addEventListener("click", () => {
+        const photoField = document.getElementById("account-photo-url");
+        if (photoField) photoField.value = "";
+        const modalUrlInput = document.getElementById("account-photo-url-modal");
+        if (modalUrlInput) modalUrlInput.value = "";
+        clearPendingProfilePhotoSelection();
+        togglePhotoCropper(false);
+        const clearBtn = document.getElementById("account-photo-clear-btn");
+        if (clearBtn) clearBtn.disabled = true;
+        updateAccountAvatarPreview();
+        closePhotoModal();
+    });
+    document.getElementById("account-photo-crop-zoom")?.addEventListener("input", event => {
+        if (!pendingProfilePhotoCropState) return;
+        const nextZoom = parseFloat(event.currentTarget?.value || "1");
+        pendingProfilePhotoCropState.zoom = Number.isFinite(nextZoom) ? nextZoom : 1;
+        clampPendingCropOffsets();
+        renderPendingCropPreview();
+    });
+    document.getElementById("account-photo-crop-reset")?.addEventListener("click", resetPendingCropTransform);
+    document.getElementById("account-photo-crop-cancel")?.addEventListener("click", () => {
+        clearPendingProfilePhotoSelection();
+        togglePhotoCropper(false);
+        const photoInput = document.getElementById("account-photo-url");
+        if (photoInput) photoInput.value = currentUser?.photoURL || "";
+        const modalUrlInput = document.getElementById("account-photo-url-modal");
+        if (modalUrlInput) modalUrlInput.value = photoInput?.value || "";
+        updateAccountAvatarPreview();
+        const clearBtn = document.getElementById("account-photo-clear-btn");
+        if (clearBtn) clearBtn.disabled = !String(photoInput?.value || "").trim();
+    });
+    document.getElementById("account-photo-crop-apply")?.addEventListener("click", handleApplyPendingCrop);
+    setupPendingCropDrag();
+    document.querySelectorAll(".account-provider-action-btn").forEach(button => {
+        button.addEventListener("click", () => handleAccountProviderAction(button.dataset.providerId, button.dataset.providerAction));
     });
     document.getElementById("account-password-form")?.addEventListener("submit", handleAccountPasswordSubmit);
     document.getElementById("account-password-reset-btn")?.addEventListener("click", handleAccountPasswordResetFromAccount);
@@ -1521,6 +1730,301 @@ async function renderAccountView() {
 
     updateYears();
     initIcons();
+}
+
+function updateAccountAvatarPreview() {
+    const wrap = document.getElementById("account-avatar-preview-wrap");
+    if (!wrap) return;
+
+    if (pendingProfilePhotoObjectUrl) {
+        const displayName = String(document.getElementById("account-display-name")?.value || currentUser?.displayName || "").trim();
+        wrap.innerHTML = `<img src="${escapeHtml(pendingProfilePhotoObjectUrl)}" alt="Photo de profil de ${escapeHtml(displayName || "utilisateur")}" class="account-avatar" id="account-avatar-preview">`;
+        return;
+    }
+
+    const photoValue = String(document.getElementById("account-photo-url")?.value || "").trim();
+    const displayName = String(document.getElementById("account-display-name")?.value || currentUser?.displayName || "").trim();
+    const fallbackInitial = (displayName || currentUser?.email || "U").charAt(0).toUpperCase();
+
+    if (photoValue) {
+        wrap.innerHTML = `<img src="${escapeHtml(photoValue)}" alt="Photo de profil de ${escapeHtml(displayName || "utilisateur")}" class="account-avatar" id="account-avatar-preview">`;
+        return;
+    }
+
+    wrap.innerHTML = `<div class="account-avatar account-avatar--fallback" id="account-avatar-preview" aria-hidden="true">${escapeHtml(fallbackInitial)}</div>`;
+}
+
+function revokePendingProfileObjectUrl() {
+    if (!pendingProfilePhotoObjectUrl) return;
+    URL.revokeObjectURL(pendingProfilePhotoObjectUrl);
+    pendingProfilePhotoObjectUrl = "";
+}
+
+function clearPendingProfilePhotoSelection() {
+    pendingProfilePhotoFile = null;
+    pendingProfilePhotoCropState = null;
+    revokePendingProfileObjectUrl();
+}
+
+function resetPendingProfilePhotoState() {
+    clearPendingProfilePhotoSelection();
+    togglePhotoCropper(false);
+}
+
+function togglePhotoCropper(visible) {
+    const cropper = document.getElementById("account-photo-cropper");
+    if (!cropper) return;
+    cropper.hidden = !visible;
+    if (!visible) {
+        const image = document.getElementById("account-photo-crop-image");
+        if (image) {
+            image.removeAttribute("src");
+            image.style.width = "";
+            image.style.height = "";
+            image.style.transform = "";
+        }
+    }
+}
+
+function isGifFile(file) {
+    const type = String(file?.type || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
+    return type === "image/gif" || name.endsWith(".gif");
+}
+
+function isAllowedProfileImageFile(file) {
+    const type = String(file?.type || "").toLowerCase();
+    if (ALLOWED_PROFILE_IMAGE_MIME_TYPES.has(type)) return true;
+    const name = String(file?.name || "").toLowerCase();
+    return /\.(jpe?g|png|webp|gif)$/i.test(name);
+}
+
+async function readFileAsDataUrl(file) {
+    return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Impossible de lire ce fichier."));
+        reader.readAsDataURL(file);
+    });
+}
+
+function setPendingProfilePreviewFromFile(file) {
+    revokePendingProfileObjectUrl();
+    pendingProfilePhotoObjectUrl = URL.createObjectURL(file);
+    updateAccountAvatarPreview();
+}
+
+function clampPendingCropOffsets() {
+    if (!pendingProfilePhotoCropState) return;
+    const maxX = Math.max(0, (pendingProfilePhotoCropState.renderWidth * pendingProfilePhotoCropState.zoom - PROFILE_AVATAR_CROP_BOX_SIZE) / 2);
+    const maxY = Math.max(0, (pendingProfilePhotoCropState.renderHeight * pendingProfilePhotoCropState.zoom - PROFILE_AVATAR_CROP_BOX_SIZE) / 2);
+    pendingProfilePhotoCropState.offsetX = Math.min(maxX, Math.max(-maxX, pendingProfilePhotoCropState.offsetX));
+    pendingProfilePhotoCropState.offsetY = Math.min(maxY, Math.max(-maxY, pendingProfilePhotoCropState.offsetY));
+}
+
+function renderPendingCropPreview() {
+    if (!pendingProfilePhotoCropState) return;
+    const image = document.getElementById("account-photo-crop-image");
+    if (!image) return;
+    const zoom = Math.max(PROFILE_AVATAR_MIN_ZOOM, Math.min(PROFILE_AVATAR_MAX_ZOOM, pendingProfilePhotoCropState.zoom));
+    pendingProfilePhotoCropState.zoom = zoom;
+    clampPendingCropOffsets();
+    image.style.transform = `translate(-50%, -50%) translate(${pendingProfilePhotoCropState.offsetX}px, ${pendingProfilePhotoCropState.offsetY}px) scale(${zoom})`;
+}
+
+function resetPendingCropTransform() {
+    if (!pendingProfilePhotoCropState) return;
+    pendingProfilePhotoCropState.offsetX = 0;
+    pendingProfilePhotoCropState.offsetY = 0;
+    pendingProfilePhotoCropState.zoom = 1;
+    const zoomInput = document.getElementById("account-photo-crop-zoom");
+    if (zoomInput) zoomInput.value = "1";
+    renderPendingCropPreview();
+}
+
+function setupPendingCropDrag() {
+    const stage = document.getElementById("account-photo-crop-stage");
+    if (!stage || stage.dataset.bound === "1") return;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startOffsetX = 0;
+    let startOffsetY = 0;
+
+    stage.addEventListener("pointerdown", event => {
+        if (!pendingProfilePhotoCropState) return;
+        isDragging = true;
+        startX = event.clientX;
+        startY = event.clientY;
+        startOffsetX = pendingProfilePhotoCropState.offsetX;
+        startOffsetY = pendingProfilePhotoCropState.offsetY;
+        stage.setPointerCapture(event.pointerId);
+    });
+
+    stage.addEventListener("pointermove", event => {
+        if (!isDragging || !pendingProfilePhotoCropState) return;
+        pendingProfilePhotoCropState.offsetX = startOffsetX + (event.clientX - startX);
+        pendingProfilePhotoCropState.offsetY = startOffsetY + (event.clientY - startY);
+        renderPendingCropPreview();
+    });
+
+    const endDrag = event => {
+        if (!isDragging) return;
+        isDragging = false;
+        try {
+            stage.releasePointerCapture(event.pointerId);
+        } catch {}
+    };
+
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+    stage.dataset.bound = "1";
+}
+
+async function initializePendingCropFromFile(file) {
+    const cropper = document.getElementById("account-photo-cropper");
+    const image = document.getElementById("account-photo-crop-image");
+    const zoomInput = document.getElementById("account-photo-crop-zoom");
+    if (!cropper || !image || !zoomInput) return;
+
+    const dataUrl = await readFileAsDataUrl(file);
+    const naturalSize = await new Promise((resolve, reject) => {
+        const probe = new Image();
+        probe.onload = () => resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
+        probe.onerror = () => reject(new Error("Image invalide ou corrompue."));
+        probe.src = dataUrl;
+    });
+
+    const baseScale = Math.max(
+        PROFILE_AVATAR_CROP_BOX_SIZE / naturalSize.width,
+        PROFILE_AVATAR_CROP_BOX_SIZE / naturalSize.height
+    );
+
+    pendingProfilePhotoCropState = {
+        dataUrl,
+        naturalWidth: naturalSize.width,
+        naturalHeight: naturalSize.height,
+        renderWidth: naturalSize.width * baseScale,
+        renderHeight: naturalSize.height * baseScale,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0
+    };
+
+    await new Promise((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("Impossible d'afficher l'image pour le recadrage."));
+        image.src = dataUrl;
+    });
+    image.style.width = `${pendingProfilePhotoCropState.renderWidth}px`;
+    image.style.height = `${pendingProfilePhotoCropState.renderHeight}px`;
+    zoomInput.value = "1";
+    renderPendingCropPreview();
+    togglePhotoCropper(true);
+}
+
+async function buildCroppedAvatarBlob() {
+    if (!pendingProfilePhotoCropState) {
+        throw new Error("Aucun recadrage en attente.");
+    }
+
+    const imageElement = document.getElementById("account-photo-crop-image");
+    if (!imageElement) {
+        throw new Error("Prévisualisation de recadrage indisponible.");
+    }
+
+    const scale = (pendingProfilePhotoCropState.renderWidth / pendingProfilePhotoCropState.naturalWidth) * pendingProfilePhotoCropState.zoom;
+    const sourceSize = PROFILE_AVATAR_CROP_BOX_SIZE / scale;
+
+    let sourceX = (pendingProfilePhotoCropState.naturalWidth / 2)
+        + ((-pendingProfilePhotoCropState.offsetX - (PROFILE_AVATAR_CROP_BOX_SIZE / 2)) / scale);
+    let sourceY = (pendingProfilePhotoCropState.naturalHeight / 2)
+        + ((-pendingProfilePhotoCropState.offsetY - (PROFILE_AVATAR_CROP_BOX_SIZE / 2)) / scale);
+
+    sourceX = Math.max(0, Math.min(pendingProfilePhotoCropState.naturalWidth - sourceSize, sourceX));
+    sourceY = Math.max(0, Math.min(pendingProfilePhotoCropState.naturalHeight - sourceSize, sourceY));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = PROFILE_AVATAR_OUTPUT_SIZE;
+    canvas.height = PROFILE_AVATAR_OUTPUT_SIZE;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Impossible de traiter cette image.");
+
+    ctx.drawImage(
+        imageElement,
+        sourceX,
+        sourceY,
+        sourceSize,
+        sourceSize,
+        0,
+        0,
+        PROFILE_AVATAR_OUTPUT_SIZE,
+        PROFILE_AVATAR_OUTPUT_SIZE
+    );
+
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", 0.9));
+    if (!blob) throw new Error("Recadrage impossible.");
+    return blob;
+}
+
+async function handleApplyPendingCrop() {
+    try {
+        const blob = await buildCroppedAvatarBlob();
+        const croppedFile = new File([blob], `avatar-${Date.now()}.webp`, { type: "image/webp" });
+        pendingProfilePhotoFile = croppedFile;
+        setPendingProfilePreviewFromFile(croppedFile);
+        togglePhotoCropper(false);
+        showToast("Recadrage appliqué. Clique sur « Enregistrer le profil ».", "success");
+        const modal = document.getElementById("account-photo-modal");
+        if (modal) modal.hidden = true;
+    } catch (err) {
+        showToast(err?.message || "Recadrage impossible.", "error");
+    }
+}
+
+async function handleAccountPhotoFileChange(event) {
+    const fileInput = event.currentTarget;
+    const file = fileInput?.files?.[0];
+    if (!file) return;
+
+    const clearBtn = document.getElementById("account-photo-clear-btn");
+    if (fileInput) fileInput.disabled = true;
+
+    try {
+        if (!isAllowedProfileImageFile(file)) {
+            throw new Error("Format non supporté. Utilise JPG, PNG, WEBP ou GIF.");
+        }
+        if (file.size > MAX_PROFILE_IMAGE_FILE_BYTES) {
+            throw new Error("Image trop volumineuse (max 6 Mo).");
+        }
+
+        const photoInput = document.getElementById("account-photo-url");
+        if (photoInput) photoInput.value = "";
+        clearPendingProfilePhotoSelection();
+
+        if (isGifFile(file)) {
+            pendingProfilePhotoFile = file;
+            setPendingProfilePreviewFromFile(file);
+            togglePhotoCropper(false);
+            showToast("GIF chargé. Clique sur « Enregistrer le profil ».", "success");
+            const modal = document.getElementById("account-photo-modal");
+            if (modal) modal.hidden = true;
+        } else {
+            await initializePendingCropFromFile(file);
+            showToast("Ajuste le recadrage puis applique.", "info");
+        }
+
+        if (clearBtn) clearBtn.disabled = false;
+    } catch (err) {
+        const message = err?.message || "Impossible d'importer cette image.";
+        showToast(message, "error");
+    } finally {
+        if (fileInput) {
+            fileInput.disabled = false;
+            fileInput.value = "";
+        }
+    }
 }
 
 function renderCategoryManagerPanelIn(containerId, registry) {
@@ -1703,6 +2207,47 @@ function renderCategoryManagerPanelIn(containerId, registry) {
     });
 }
 
+function inferAvatarExtension(file) {
+    const type = String(file?.type || "").toLowerCase();
+    if (type === "image/gif") return "gif";
+    if (type === "image/png") return "png";
+    if (type === "image/jpeg") return "jpg";
+    return "webp";
+}
+
+function getStoragePathFromPublicUrl(url) {
+    if (!url || typeof url !== "string") return null;
+    const marker = "/o/";
+    const markerIndex = url.indexOf(marker);
+    if (markerIndex === -1) return null;
+    const encodedPath = url.slice(markerIndex + marker.length).split("?")[0] || "";
+    if (!encodedPath) return null;
+    return decodeURIComponent(encodedPath);
+}
+
+async function deleteOldProfilePhotoIfManaged(previousUrl, uid) {
+    const storagePath = getStoragePathFromPublicUrl(previousUrl);
+    if (!storagePath) return;
+    const expectedPrefix = `users/${uid}/profile/`;
+    if (!storagePath.startsWith(expectedPrefix)) return;
+    try {
+        await deleteObject(storageRef(storage, storagePath));
+    } catch {}
+}
+
+async function uploadProfilePhotoFile(file) {
+    if (!currentUser || !file) return null;
+
+    const extension = inferAvatarExtension(file);
+    const filePath = `users/${currentUser.uid}/profile/avatar_${Date.now()}.${extension}`;
+    const fileRef = storageRef(storage, filePath);
+    await uploadBytes(fileRef, file, {
+        contentType: file.type || `image/${extension}`,
+        cacheControl: "public, max-age=31536000, immutable"
+    });
+    return await getDownloadURL(fileRef);
+}
+
 async function handleAccountProfileSubmit(event) {
     event.preventDefault();
     if (!currentUser) return;
@@ -1713,35 +2258,49 @@ async function handleAccountProfileSubmit(event) {
     try {
         const displayName = String(document.getElementById("account-display-name")?.value || "").trim();
         const photoInput = String(document.getElementById("account-photo-url")?.value || "").trim();
+        const previousPhoto = currentUser.photoURL || "";
         let photoURL = null;
 
-        if (photoInput) {
+        if (pendingProfilePhotoCropState && !pendingProfilePhotoFile) {
+            throw new Error("Applique le recadrage avant d'enregistrer.");
+        }
+
+        if (pendingProfilePhotoFile) {
+            photoURL = await uploadProfilePhotoFile(pendingProfilePhotoFile);
+            await deleteOldProfilePhotoIfManaged(previousPhoto, currentUser.uid);
+        } else if (photoInput) {
             const parsed = new URL(photoInput);
             if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
                 throw new Error("URL de photo invalide");
             }
             photoURL = parsed.toString();
+        } else {
+            await deleteOldProfilePhotoIfManaged(previousPhoto, currentUser.uid);
         }
 
         await updateProfile(currentUser, {
             displayName: displayName || null,
             photoURL
         });
+        await currentUser.reload();
+        currentUser = auth.currentUser;
 
         showToast("Profil mis à jour.", "success");
+        resetPendingProfilePhotoState();
         await renderAccountView();
     } catch (err) {
         const details = getFriendlyErrorDetails(err, "la mise à jour du profil");
         showToast(`${details.userMessage} Voir la console (F12).`, "error");
         logStyledError("Mise à jour profil", err, details, {
             displayName: document.getElementById("account-display-name")?.value || "",
-            hasPhotoUrl: Boolean(document.getElementById("account-photo-url")?.value)
+            hasPhotoUrl: Boolean(document.getElementById("account-photo-url")?.value),
+            hasPendingUpload: Boolean(pendingProfilePhotoFile)
         });
         if (submitButton) submitButton.disabled = false;
     }
 }
 
-async function handleAccountProviderLink(providerId) {
+async function handleAccountProviderAction(providerId, action = "link") {
     if (!currentUser) return;
     if (currentUser.isAnonymous) {
         showToast("Connectez-vous avec un compte pour lier des fournisseurs.", "warning");
@@ -1750,16 +2309,41 @@ async function handleAccountProviderLink(providerId) {
 
     const providerMeta = getProviderFactoryById(providerId);
     const linkedProviders = getLinkedProviderIds(currentUser);
+    const isLinked = linkedProviders.includes(providerId);
+    if (action === "unlink") {
+        if (!isLinked) {
+            showToast(`${getProviderLabel(providerId)} n'est pas lié.`, "info");
+            return;
+        }
+        if (linkedProviders.length <= 1) {
+            showToast("Ajoutez d'abord une autre méthode de connexion avant de délier ce fournisseur.", "warning");
+            return;
+        }
+
+        const button = document.querySelector(`.account-provider-action-btn[data-provider-id="${providerId}"]`);
+        if (button) button.disabled = true;
+        try {
+            await unlink(currentUser, providerId);
+            showToast(`${getProviderLabel(providerId)} a été délié de votre compte.`, "success");
+            await renderAccountView();
+        } catch (err) {
+            const details = getAuthErrorDetails(err, "la déliaison du compte", getProviderLabel(providerId));
+            showToast(details.userMessage, "error");
+            if (button && document.body.contains(button)) button.disabled = false;
+        }
+        return;
+    }
+
     if (!providerMeta || providerMeta.enabled === false) {
         showToast(`Liaison ${getProviderLabel(providerId)} indisponible pour le moment.`, "info");
         return;
     }
-    if (linkedProviders.includes(providerId)) {
+    if (isLinked) {
         showToast(`${getProviderLabel(providerId)} est déjà lié.`, "info");
         return;
     }
 
-    const button = document.querySelector(`.account-link-provider-btn[data-provider-id="${providerId}"]`);
+    const button = document.querySelector(`.account-provider-action-btn[data-provider-id="${providerId}"]`);
     if (button) button.disabled = true;
 
     try {
@@ -3040,12 +3624,30 @@ async function saveMarkedCells(id, cells) {
     }
 }
 
+async function ensureAnonymousProfileAvatar(user) {
+    if (!user?.isAnonymous || user.photoURL || guestAvatarGenerationInFlight) return;
+    guestAvatarGenerationInFlight = true;
+    try {
+        const seed = String(user.uid || `guest-${Date.now()}`).slice(0, 24);
+        await updateProfile(user, {
+            displayName: user.displayName || "Invité",
+            photoURL: `https://api.dicebear.com/9.x/glass/svg?seed=${encodeURIComponent(seed)}&radius=0`
+        });
+        currentUser = auth.currentUser || user;
+    } catch (err) {
+        console.warn("Guest avatar generation failed", err);
+    } finally {
+        guestAvatarGenerationInFlight = false;
+    }
+}
+
 
 onAuthStateChanged(auth, user => {
     currentUser = user;
     if (user) {
-        void restoreAppState();
+        void ensureAnonymousProfileAvatar(user).then(() => restoreAppState());
     } else {
+        resetPendingProfilePhotoState();
         void renderLoginView();
     }
 });
