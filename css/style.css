@@ -375,6 +375,35 @@ button {
 
 
 .img { display: block; max-width: 100%; height: auto; }
+.avatar-crop-host {
+    position: relative;
+    display: inline-flex;
+    overflow: hidden;
+    border-radius: 50%;
+    vertical-align: middle;
+}
+
+.img-avatar-crop-host {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+}
+
+.account-avatar-crop-host {
+    width: 72px;
+    height: 72px;
+}
+
+.avatar-crop-image {
+    position: absolute;
+    left: var(--avatar-crop-x, 0%);
+    top: var(--avatar-crop-y, 0%);
+    width: var(--avatar-crop-w, 100%) !important;
+    height: var(--avatar-crop-h, 100%) !important;
+    max-width: none;
+    border-radius: 0;
+}
+
 .img--avatar {
     width: 36px;
     height: 36px;
@@ -1030,10 +1059,18 @@ button {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+    transition: opacity 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .account-photo-cropper[hidden] {
     display: none !important;
+}
+
+.account-photo-cropper.is-open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
 }
 
 .account-photo-crop-head {
@@ -1755,7 +1792,8 @@ button {
         gap: 6px;
     }
 
-    .profile-trigger .img--avatar {
+    .profile-trigger .img--avatar,
+    .profile-trigger .img-avatar-crop-host {
         width: 32px;
         height: 32px;
     }
