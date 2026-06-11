@@ -1075,7 +1075,7 @@ function createGeneratedInitialsAvatarUrl({ displayName = "", email = "", uid = 
     };
     const textColor = getReadableTextColorFromRgb(avgBg);
         const safeInitials = escapeHtml(initials.slice(0, 2));
-        const shadowColor = textColor === "#111111" ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.28)";
+    const strokeColor = textColor === "#111111" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.30)";
         const fontSize = safeInitials.length > 1 ? 178 : 198;
 
     const svg = `
@@ -1099,10 +1099,21 @@ function createGeneratedInitialsAvatarUrl({ displayName = "", email = "", uid = 
   <rect width="512" height="512" fill="url(#g)" />
     <rect width="512" height="512" fill="url(#softLight)" />
     <rect width="512" height="512" fill="url(#softShade)" />
-    <g transform="translate(256 256)">
-        <text x="0" y="12" text-anchor="middle" dominant-baseline="middle" fill="${shadowColor}" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="700" letter-spacing="4">${safeInitials}</text>
-        <text x="0" y="0" text-anchor="middle" dominant-baseline="middle" fill="${textColor}" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="700" letter-spacing="4">${safeInitials}</text>
-    </g>
+    <text
+        x="256"
+        y="256"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        dy="0.055em"
+        fill="${textColor}"
+        stroke="${strokeColor}"
+        stroke-width="2"
+        paint-order="stroke"
+        font-family="Segoe UI, Arial, sans-serif"
+        font-size="${fontSize}"
+        font-weight="700"
+        letter-spacing="3"
+    >${safeInitials}</text>
 </svg>`;
 
     return `data:image/svg+xml;generated-avatar=1,${encodeURIComponent(svg.trim())}`;
