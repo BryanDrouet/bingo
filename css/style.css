@@ -656,6 +656,7 @@ button {
     border-radius: 999px;
     padding: 2px;
     color: var(--white);
+    user-select: none;
     transition: border-color var(--dur), background-color var(--dur), color var(--dur), box-shadow var(--dur);
 }
 
@@ -1407,6 +1408,7 @@ button {
 .login-card p { color: var(--gray-500); line-height: 1.6; }
 
 .login-card--auth {
+    user-select: none;
     max-width: 460px;
     text-align: left;
     gap: 18px;
@@ -1546,6 +1548,7 @@ button {
 }
 
 .dashboard-toolbar {
+    user-select: none;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -1633,6 +1636,7 @@ button {
     font-size: 0.9375rem;
     font-weight: 600;
     cursor: pointer;
+    user-select: none;
     transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
@@ -1822,6 +1826,7 @@ button {
     box-shadow: 4px 4px 0 var(--black-light);
     display: flex;
     flex-direction: column;
+    user-select: none;
     gap: 12px;
 }
 .bingo-card:hover { transform: translate(-3px, -3px); box-shadow: 7px 7px 0 var(--black-light); }
@@ -1951,6 +1956,7 @@ button {
     display: flex;
     flex-direction: column;
     gap: 24px;
+    user-select: none;
 }
 
 @media (max-width: 480px) {
@@ -2330,6 +2336,7 @@ button {
     gap: clamp(6px, 1.8vw, 12px);
     width: 100%;
     aspect-ratio: 1 / 1;
+    user-select: none;
 }
 .bingo-grid-play.grid-3 { grid-template-columns: repeat(3, 1fr); }
 .bingo-grid-play.grid-4 { grid-template-columns: repeat(4, 1fr); }
