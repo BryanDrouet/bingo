@@ -687,6 +687,7 @@ button {
     min-width: 220px;
     display: flex;
     flex-direction: column;
+    user-select: none;
     gap: 4px;
     padding: 8px;
     background: var(--white);
@@ -818,6 +819,7 @@ button {
     padding: 24px 16px 48px;
     display: flex;
     flex-direction: column;
+    user-select: none;
     gap: 24px;
 }
 
