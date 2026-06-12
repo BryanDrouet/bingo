@@ -1182,6 +1182,7 @@ button {
     flex-direction: column;
     gap: 14px;
     scrollbar-width: thin;
+    user-select: none;
     scrollbar-color: var(--gray-500) var(--gray-100);
     opacity: 0;
     transform: translateY(10px) scale(0.98);
