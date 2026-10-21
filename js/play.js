@@ -22,17 +22,19 @@ let hasShownFinalWinModal = false;
 function fitBingoCellText() {
     document.querySelectorAll(".bingo-cell span").forEach(span => {
         span.style.fontSize = "";
+        span.style.width = "100%";
+        span.style.maxHeight = "";
         const cell = span.closest(".bingo-cell");
         if (!cell) return;
 
         const computed = getComputedStyle(cell);
         const baseSize = parseFloat(getComputedStyle(span).fontSize);
-        const minSize = 6;
-        const horizontalSpace = cell.clientWidth - parseFloat(computed.paddingLeft) - parseFloat(computed.paddingRight);
+        const minSize = 8;
         const verticalSpace = cell.clientHeight - parseFloat(computed.paddingTop) - parseFloat(computed.paddingBottom);
+        span.style.maxHeight = `${Math.max(0, verticalSpace)}px`;
         let size = baseSize;
 
-        while ((span.scrollWidth > horizontalSpace || span.scrollHeight > verticalSpace) && size > minSize) {
+        while ((span.scrollWidth > span.clientWidth || span.scrollHeight > span.clientHeight) && size > minSize) {
             size = Math.max(minSize, size - 0.25);
             span.style.fontSize = `${size}px`;
         }
