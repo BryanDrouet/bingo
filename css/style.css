@@ -2340,6 +2340,7 @@ button {
     width: 100%;
     aspect-ratio: 1 / 1;
     user-select: none;
+    grid-auto-rows: minmax(0, 1fr);
 }
 .bingo-grid-play.grid-3 { grid-template-columns: repeat(3, 1fr); }
 .bingo-grid-play.grid-4 { grid-template-columns: repeat(4, 1fr); }
@@ -2356,19 +2357,26 @@ button {
     justify-content: center;
     text-align: center;
     aspect-ratio: 1;
+    min-width: 0;
+    min-height: 0;
     transition: transform var(--dur), box-shadow var(--dur), background-color var(--dur), color var(--dur), border-color var(--dur);
     box-shadow: 4px 4px 0 var(--black-light);
     font-weight: 700;
     line-height: 1.25;
     color: var(--black);
     word-break: break-word;
+    overflow-wrap: anywhere;
     hyphens: auto;
     overflow: hidden;
 }
 
 .bingo-grid-play.grid-3 .bingo-cell { font-size: clamp(0.75rem, 3vw, 1rem); }
 .bingo-grid-play.grid-4 .bingo-cell { font-size: clamp(0.65rem, 2.5vw, 0.875rem); }
-.bingo-grid-play.grid-5 .bingo-cell { font-size: clamp(0.6rem, 2vw, 0.75rem); }
+.bingo-grid-play.grid-5 .bingo-cell {
+    font-size: clamp(0.56rem, 1.8vw, 0.72rem);
+    padding: clamp(4px, 1.2vw, 10px);
+    line-height: 1.15;
+}
 
 .bingo-cell:hover { transform: translate(-3px, -3px); box-shadow: 7px 7px 0 var(--black-light); }
 .bingo-cell:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--black-light); }
