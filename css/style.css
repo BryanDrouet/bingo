@@ -2339,6 +2339,7 @@ button {
     gap: clamp(6px, 1.8vw, 12px);
     width: 100%;
     aspect-ratio: 1 / 1;
+    grid-auto-rows: minmax(0, 1fr);
     user-select: none;
 }
 .bingo-grid-play.grid-3 { grid-template-columns: repeat(3, 1fr); }
@@ -2356,6 +2357,8 @@ button {
     justify-content: center;
     text-align: center;
     aspect-ratio: 1;
+    min-width: 0;
+    min-height: 0;
     transition: transform var(--dur), box-shadow var(--dur), background-color var(--dur), color var(--dur), border-color var(--dur);
     box-shadow: 4px 4px 0 var(--black-light);
     font-weight: 700;
