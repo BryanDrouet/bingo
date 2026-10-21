@@ -29,12 +29,13 @@ function fitBingoCellText() {
 
         const computed = getComputedStyle(cell);
         const baseSize = parseFloat(getComputedStyle(span).fontSize);
-        const minSize = 8;
+        const minSize = 10;
+        const horizontalSpace = cell.clientWidth - parseFloat(computed.paddingLeft) - parseFloat(computed.paddingRight);
         const verticalSpace = cell.clientHeight - parseFloat(computed.paddingTop) - parseFloat(computed.paddingBottom);
         span.style.maxHeight = `${Math.max(0, verticalSpace)}px`;
         let size = baseSize;
 
-        while ((span.scrollWidth > span.clientWidth || span.scrollHeight > span.clientHeight) && size > minSize) {
+        while ((span.scrollWidth > horizontalSpace || span.scrollHeight > verticalSpace) && size > minSize) {
             size = Math.max(minSize, size - 0.25);
             span.style.fontSize = `${size}px`;
         }
