@@ -19,6 +19,26 @@ let liveMarkedCells = [];
 let hasShownWinModal = false;
 let hasShownFinalWinModal = false;
 
+function fitBingoCellText() {
+    document.querySelectorAll(".bingo-cell span").forEach(span => {
+        span.style.fontSize = "";
+        const cell = span.closest(".bingo-cell");
+        if (!cell) return;
+
+        const computed = getComputedStyle(cell);
+        const baseSize = parseFloat(getComputedStyle(span).fontSize);
+        const minSize = 6;
+        const horizontalSpace = cell.clientWidth - parseFloat(computed.paddingLeft) - parseFloat(computed.paddingRight);
+        const verticalSpace = cell.clientHeight - parseFloat(computed.paddingTop) - parseFloat(computed.paddingBottom);
+        let size = baseSize;
+
+        while ((span.scrollWidth > horizontalSpace || span.scrollHeight > verticalSpace) && size > minSize) {
+            size = Math.max(minSize, size - 0.25);
+            span.style.fontSize = `${size}px`;
+        }
+    });
+}
+
 function debugPlayOverflow(source) {
     const root = document.documentElement;
     const view = document.querySelector(".view-play");
@@ -182,7 +202,10 @@ async function renderPlayBoard(bingo) {
 
     updateYears();
     initIcons();
+    fitBingoCellText();
+    window.addEventListener("resize", fitBingoCellText, { passive: true });
     requestAnimationFrame(() => {
+        fitBingoCellText();
         debugPlayOverflow("play-board");
     });
 }

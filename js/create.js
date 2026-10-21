@@ -19,7 +19,7 @@ import {
 import { getFriendlyErrorDetails, logStyledError } from "./errors.js";
 import { renderDashboard } from "./dashboard.js";
 
-const MAX_CELL_CHARACTERS = 36;
+const MAX_CELL_TEXT_LENGTH = 80;
 
 function readCreateDraft(editId) {
     const draft = readStoredJson(CREATE_DRAFT_STORAGE_KEY);
@@ -184,7 +184,7 @@ export async function renderCreateView(editId = null) {
             </div>
             <div class="form-group">
                 <span class="cells-label">Contenu des cases <span class="required-mark" aria-hidden="true">*</span></span>
-                <span class="form-hint">Toutes les cases sont obligatoires. ${MAX_CELL_CHARACTERS} caractères maximum par case.</span>
+                <span class="form-hint">Toutes les cases sont obligatoires. ${MAX_CELL_TEXT_LENGTH} caractères maximum par case.</span>
                 <div id="cells-editor" class="cells-grid-editor cells-editor-${size}">
                     ${buildCellInputs(size, draft?.cells || existing?.cells)}
                 </div>
@@ -338,8 +338,8 @@ function buildCellInputs(size, values) {
     return Array.from({ length: size * size }, (_, i) => `
         <div class="cell-editor-wrap">
             <label for="cell-${i}">Case ${i + 1}</label>
-            <textarea id="cell-${i}" name="cell-${i}" rows="2" maxlength="${MAX_CELL_CHARACTERS}"
-                                placeholder="Saisir le contenu" aria-label="Contenu obligatoire de la case ${i + 1} du bingo, ${MAX_CELL_CHARACTERS} caractères maximum" required aria-required="true">${String(values?.[i] || "").slice(0, MAX_CELL_CHARACTERS)}</textarea>
+            <textarea id="cell-${i}" name="cell-${i}" rows="2" maxlength="${MAX_CELL_TEXT_LENGTH}"
+                                placeholder="Saisir le contenu" aria-label="Contenu obligatoire de la case ${i + 1} du bingo, ${MAX_CELL_TEXT_LENGTH} caractères maximum" required aria-required="true">${escapeHtml(String(values?.[i] || "").slice(0, MAX_CELL_TEXT_LENGTH))}</textarea>
         </div>
     `).join("");
 }
@@ -372,9 +372,9 @@ async function handleSaveBingo(e, editId) {
         document.getElementById(`cell-${i}`)?.value.trim() || ""
     );
 
-    const oversizedCellIndex = cells.findIndex(cell => cell.length > MAX_CELL_CHARACTERS);
+    const oversizedCellIndex = cells.findIndex(cell => cell.length > MAX_CELL_TEXT_LENGTH);
     if (oversizedCellIndex !== -1) {
-        showToast(`La case ${oversizedCellIndex + 1} doit contenir ${MAX_CELL_CHARACTERS} caractères maximum.`, "warning");
+        showToast(`La case ${oversizedCellIndex + 1} dépasse ${MAX_CELL_TEXT_LENGTH} caractères.`, "warning");
         document.getElementById(`cell-${oversizedCellIndex}`)?.focus();
         return;
     }
