@@ -49,7 +49,8 @@ function saveCreateDraft(editId) {
         categoryColor,
         categoryPattern,
         size,
-        cells
+        cells,
+        allowDuplication: document.getElementById("f-allow-duplication")?.checked === true
     });
 }
 
@@ -204,7 +205,11 @@ export async function renderCreateView(editId = null) {
                     <input type="checkbox" id="f-published" ${existing?.published ? "checked" : ""} ${isGuest ? "disabled" : ""}>
                     <span>Publier ce bingo dans l’onglet Découvrir</span>
                 </label>
-                <span class="form-hint">${isGuest ? "La publication dans Découvrir nécessite un compte connecté." : "Un bingo public reste modifiable uniquement par son auteur."} Les liens de partage sont accessibles depuis le bouton « Partager » dans le bingo.</span>
+                <label class="form-check">
+                    <input type="checkbox" id="f-allow-duplication" ${(draft?.allowDuplication ?? existing?.allowDuplication) === true ? "checked" : ""}>
+                    <span>Autoriser les autres joueurs à dupliquer ce bingo</span>
+                </label>
+                <span class="form-hint">${isGuest ? "La publication dans Découvrir nécessite un compte connecté." : "Un bingo public reste modifiable uniquement par son auteur. La duplication permet de créer une copie indépendante."} Les liens de partage sont accessibles depuis le bouton « Partager » dans le bingo.</span>
             </div>
             <div class="form-actions">
                 <button type="button" id="cancel-btn" class="btn btn--neutral">Annuler</button>
@@ -440,11 +445,12 @@ async function handleSaveBingo(e, editId) {
         }
 
         const published = !currentUser?.isAnonymous && document.getElementById("f-published")?.checked === true;
-        const savedBingo = { id: editId, title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells };
+        const allowDuplication = document.getElementById("f-allow-duplication")?.checked === true;
+        const savedBingo = { id: editId, title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells, allowDuplication };
 
         if (editId) {
             await updateDoc(bingoDocRef(editId), {
-                title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells,
+                title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells, allowDuplication,
                 published,
                 updatedAt: serverTimestamp()
             });
@@ -469,6 +475,7 @@ async function handleSaveBingo(e, editId) {
                 size,
                 cells,
                 markedCells: new Array(size * size).fill(false),
+                allowDuplication,
                 published,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()

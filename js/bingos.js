@@ -7,6 +7,7 @@ import {
     getDoc,
     setDoc,
     deleteDoc,
+    serverTimestamp,
     query,
     orderBy,
     where,
@@ -60,10 +61,35 @@ export async function publishBingo(bingo) {
     await setDoc(ref, {
         ...bingoPublicData(bingo),
         markedCells,
+        allowDuplication: bingo.allowDuplication === true,
         ownerUid: currentUser.uid,
         sourceBingoId: bingo.id,
         publishedAt: existingData?.publishedAt || bingo.publishedAt || new Date(),
         updatedAt: new Date()
+    });
+}
+
+export async function duplicatePublicBingo(bingo) {
+    const publicBingoSnap = await getDoc(publicBingoDocRef(bingo.id));
+    if (!publicBingoSnap.exists() || publicBingoSnap.data().allowDuplication !== true) {
+        throw new Error("The author has not allowed this public bingo to be duplicated.");
+    }
+
+    const latestBingo = publicBingoSnap.data();
+    return addDoc(bingoCollRef(), {
+        title: `${latestBingo.title} (copie)`,
+        category: latestBingo.category || "Sans catégorie",
+        categoryColor: latestBingo.categoryColor || "#CC0000",
+        categoryPattern: latestBingo.categoryPattern || "none",
+        categoryPatternZoom: latestBingo.categoryPatternZoom || 1,
+        size: latestBingo.size,
+        cells: latestBingo.cells,
+        markedCells: new Array(latestBingo.size * latestBingo.size).fill(false),
+        published: false,
+        allowDuplication: false,
+        sourcePublicBingoId: bingo.id,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
     });
 }
 

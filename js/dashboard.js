@@ -86,12 +86,11 @@ import {
 } from "./avatars.js";
 import {
     bingoDocRef,
-    bingoCollRef,
     fetchBingos,
+    duplicatePublicBingo,
     subscribeToPublicBingos,
     unpublishBingo
 } from "./bingos.js";
-import { addDoc } from "./firebase-client.js";
 import {
     getProviderLabel,
     getProviderFactoryById,
@@ -1805,7 +1804,9 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
             <div aria-hidden="true">${buildMiniPreview(b)}</div>
             <div class="bingo-card-actions">
                 ${isDiscover && b.ownerUid !== currentUser.uid
-                    ? `<button type="button" class="btn btn--primary btn--sm js-duplicate" data-id="${b.id}" title="Créer une copie modifiable dans mes bingos">Dupliquer</button>`
+                    ? (b.allowDuplication === true
+                        ? `<button type="button" class="btn btn--primary btn--sm js-duplicate" data-id="${b.id}" title="Créer une copie modifiable dans mes bingos">Dupliquer</button>`
+                        : "")
                     : `<button type="button" class="btn btn--neutral btn--sm btn--icon js-edit" data-id="${b.id}" aria-label="Modifier ${b.title}" title="Modifier ce bingo"><i data-lucide="pencil" aria-hidden="true"></i></button>
                        <button type="button" class="btn btn--danger btn--sm btn--icon js-delete" data-id="${b.id}" aria-label="Supprimer ${b.title}" title="Supprimer ce bingo"><i data-lucide="trash-2" aria-hidden="true"></i></button>`}
             </div>
@@ -1837,20 +1838,9 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
 
 async function handleDuplicatePublicBingo(id) {
     const bingo = dashboardAllBingos.find(item => item.id === id);
-    if (!bingo) return;
+    if (!bingo || bingo.allowDuplication !== true) return;
     try {
-        await addDoc(bingoCollRef(), {
-            title: `${bingo.title} (copie)`,
-            category: bingo.category || "Sans catégorie",
-            categoryColor: bingo.categoryColor || "#CC0000",
-            categoryPattern: bingo.categoryPattern || "none",
-            categoryPatternZoom: bingo.categoryPatternZoom || 1,
-            size: bingo.size,
-            cells: bingo.cells,
-            markedCells: new Array(bingo.size * bingo.size).fill(false),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        });
+        await duplicatePublicBingo(bingo);
         showToast("Bingo dupliqué dans vos grilles.", "success");
     } catch (err) {
         showToast("Impossible de dupliquer ce bingo.", "error");

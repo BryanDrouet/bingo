@@ -5,7 +5,8 @@ import {
     publicBingoDocRef,
     fetchPublicBingo,
     fetchSharedBingo,
-    createShareLink
+    createShareLink,
+    duplicatePublicBingo
 } from "./bingos.js";
 import { setCurrentViewState } from "./view-state.js";
 import { replaceAppMarkup, navigateWithHeader, showAppModal, initIcons, updateYears, showToast } from "./ui.js";
@@ -165,6 +166,11 @@ export async function renderPlayView(bingoId, source = "owned") {
 
 async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSave = source === "owned") {
     const size = bingo.size;
+    const isPublicOwner = source === "public" && currentUser?.uid === bingo.ownerUid;
+    const canInteract = source !== "public" || isPublicOwner;
+    const canDuplicate = source === "public"
+        && !isPublicOwner
+        && bingo.allowDuplication === true;
 
     await replaceAppMarkup(`
         <div class="view view-play" style="${buildBingoAccentStyle(bingo.categoryColor)}">
@@ -179,6 +185,12 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
                     </div>
                 </div>
                 <div class="header-right">
+                    ${canDuplicate ? `
+                        <button type="button" id="duplicate-public-bingo-btn" class="btn btn--primary btn--sm">
+                            <i data-lucide="copy" aria-hidden="true"></i>
+                            <span>Dupliquer</span>
+                        </button>
+                    ` : ""}
                     <button type="button" id="share-play-btn" class="btn btn--ghost-light btn--sm play-share-btn" aria-label="Partager ce bingo" title="Partager ce bingo par lien">
                         <i data-lucide="share-2" aria-hidden="true"></i>
                         <span>Partager</span>
@@ -192,6 +204,7 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
                             <button type="button"
                                             class="bingo-cell${liveMarkedCells[i] ? " marked" : ""}"
                                             data-index="${i}"
+                                            ${canInteract ? "" : "disabled"}
                                             aria-pressed="${liveMarkedCells[i]}"
                                             aria-label="${cell || "Case vide"}, ${liveMarkedCells[i] ? "cochée" : "non cochée"}">
                                 <span>${cell}</span>
@@ -248,8 +261,23 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
         }
     });
 
+    document.getElementById("duplicate-public-bingo-btn")?.addEventListener("click", async () => {
+        try {
+            await duplicatePublicBingo(bingo);
+            showToast("Une copie modifiable a été ajoutée à vos bingos.", "success");
+            stopPublicBingoSync?.();
+            stopPublicBingoSync = null;
+            activePublicBingoId = null;
+            await navigateWithHeader(() => renderDashboard());
+        } catch (err) {
+            showToast("L’auteur n’autorise plus la duplication de ce bingo.", "error");
+            console.error("Public bingo duplication error:", err);
+        }
+    });
+
     document.querySelectorAll(".bingo-cell").forEach(cell => {
         cell.addEventListener("click", () => {
+            if (!canInteract) return;
             const i = parseInt(cell.dataset.index);
             liveMarkedCells[i] = !liveMarkedCells[i];
             cell.classList.toggle("marked", liveMarkedCells[i]);
@@ -370,6 +398,7 @@ function subscribeToPublicBingo(bingo, source = "public") {
             || nextBingo.categoryColor !== bingo.categoryColor
             || nextBingo.categoryPattern !== bingo.categoryPattern
             || nextBingo.categoryPatternZoom !== bingo.categoryPatternZoom
+            || nextBingo.allowDuplication !== bingo.allowDuplication
             || nextBingo.size !== bingo.size
             || JSON.stringify(nextBingo.cells) !== JSON.stringify(bingo.cells);
         lastSnapshotCells = [...nextCells];

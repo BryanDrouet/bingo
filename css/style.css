@@ -2494,6 +2494,9 @@ button {
 
 .bingo-cell:hover { transform: translate(-3px, -3px); box-shadow: 7px 7px 0 var(--black-light); }
 .bingo-cell:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--black-light); }
+.bingo-cell:disabled { cursor: default; }
+.bingo-cell:disabled:hover,
+.bingo-cell:disabled:active { transform: none; }
 
 .bingo-cell.marked {
     background: var(--bingo-accent);

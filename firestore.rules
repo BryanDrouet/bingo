@@ -14,6 +14,12 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isDuplicationAllowed(data) {
+      return !data.keys().hasAny(['sourcePublicBingoId'])
+        || get(/databases/$(database)/documents/publicBingos/$(data.sourcePublicBingoId))
+          .data.allowDuplication == true;
+    }
+
     function isValidString(value, max) {
       return value is string && value.size() > 0 && value.size() <= max;
     }
@@ -58,7 +64,11 @@ service cloud.firestore {
         && (!data.keys().hasAny(['categoryPatternZoom'])
           || isValidZoom(data.categoryPatternZoom))
         && (!data.keys().hasAny(['published'])
-          || data.published is bool);
+          || data.published is bool)
+        && (!data.keys().hasAny(['allowDuplication'])
+          || data.allowDuplication is bool)
+        && (!data.keys().hasAny(['sourcePublicBingoId'])
+          || isValidString(data.sourcePublicBingoId, 128));
     }
 
     match /users/{userId}/bingos/{bingoId} {
@@ -66,18 +76,19 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && request.resource.data.keys().hasOnly([
           'title','category','categoryColor','categoryPattern','categoryPatternZoom',
-          'size','cells','markedCells','published','createdAt','updatedAt'
+          'size','cells','markedCells','published','allowDuplication','sourcePublicBingoId','createdAt','updatedAt'
         ])
         && request.resource.data.keys().hasAll([
           'title','category','size','cells','createdAt','updatedAt'
         ])
         && isValidBingo(request.resource.data)
+        && isDuplicationAllowed(request.resource.data)
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
       allow update: if isOwner(userId)
         && request.resource.data.keys().hasOnly([
           'title','category','categoryColor','categoryPattern','categoryPatternZoom',
-          'size','cells','markedCells','published','createdAt','updatedAt'
+          'size','cells','markedCells','published','allowDuplication','sourcePublicBingoId','createdAt','updatedAt'
         ])
         && isValidBingo(request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt
@@ -90,7 +101,7 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'title','category','categoryColor','categoryPattern','categoryPatternZoom',
-          'size','cells','markedCells','published','ownerUid','sourceBingoId','publishedAt','updatedAt'
+          'size','cells','markedCells','published','allowDuplication','ownerUid','sourceBingoId','publishedAt','updatedAt'
         ])
         && isValidBingo(request.resource.data)
         && request.resource.data.ownerUid == request.auth.uid;
