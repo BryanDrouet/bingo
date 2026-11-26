@@ -649,6 +649,18 @@ button {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.play-share-btn {
+    gap: 7px;
+    padding: 8px 10px;
+    white-space: nowrap;
+}
+
+.play-share-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
     flex-shrink: 0;
     position: relative;
 }

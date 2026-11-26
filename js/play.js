@@ -149,8 +149,9 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
                     <button type="button" id="reset-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Réinitialiser les cases cochées" title="Réinitialiser les cases cochées">
                         <i data-lucide="rotate-ccw" aria-hidden="true"></i>
                     </button>
-                    <button type="button" id="share-play-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Partager ce bingo" title="Partager ce bingo par lien">
+                    <button type="button" id="share-play-btn" class="btn btn--ghost-light btn--sm play-share-btn" aria-label="Partager ce bingo" title="Partager ce bingo par lien">
                         <i data-lucide="share-2" aria-hidden="true"></i>
+                        <span>Partager</span>
                     </button>
                 </div>
             </header>
@@ -205,8 +206,24 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
             const url = source === "public"
                 ? new URL(`?public=${encodeURIComponent(bingo.id)}`, window.location.origin).href
                 : new URL(`?share=${encodeURIComponent(shareId)}`, window.location.origin).href;
-            await navigator.clipboard.writeText(url);
-            showToast("Lien de partage copié.", "success");
+            if (typeof navigator.share === "function") {
+                try {
+                    await navigator.share({ title: bingo.title, text: `Joue à mon bingo « ${bingo.title} »`, url });
+                    return;
+                } catch (shareError) {
+                    if (shareError?.name === "AbortError") return;
+                }
+            }
+            if (navigator.clipboard?.writeText) {
+                try {
+                    await navigator.clipboard.writeText(url);
+                    showToast("Lien de partage copié.", "success");
+                    return;
+                } catch (clipboardError) {
+                    console.warn("Copie automatique indisponible, affichage du lien à copier manuellement.", clipboardError);
+                }
+            }
+            window.prompt("Copie ce lien pour partager le bingo :", url);
         } catch (err) {
             showToast("Impossible de créer le lien de partage.", "error");
             console.error(err);

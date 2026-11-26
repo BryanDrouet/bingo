@@ -94,6 +94,18 @@
         }
 
         async function bootstrapApp() {
+            if ("serviceWorker" in navigator) {
+                try {
+                    const registration = await navigator.serviceWorker.register("/service-worker.js", {
+                        scope: "/",
+                        updateViaCache: "none"
+                    });
+                    await registration.update();
+                } catch (error) {
+                    console.warn("Mise à jour automatique indisponible.", error);
+                }
+            }
+
             if (isLocalHost) {
                 try {
                     await loadScript(`js/firebase-config.local.js?v=${cacheBust}`);

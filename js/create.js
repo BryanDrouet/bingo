@@ -7,8 +7,7 @@ import {
     bingoDocRef,
     fetchBingos,
     publishBingo,
-    unpublishBingo,
-    createShareLink
+    unpublishBingo
 } from "./bingos.js";
 import {
     normalizeHexColor,
@@ -203,11 +202,7 @@ export async function renderCreateView(editId = null) {
                     <input type="checkbox" id="f-published" ${existing?.published ? "checked" : ""}>
                     <span>Publier ce bingo dans l’onglet Découvrir</span>
                 </label>
-                <label class="form-check">
-                    <input type="checkbox" id="f-share-after-save">
-                    <span>Créer un lien de partage après l’enregistrement</span>
-                </label>
-                <span class="form-hint">Un bingo public reste modifiable uniquement par son auteur.</span>
+                <span class="form-hint">Les liens de partage sont accessibles depuis le bouton « Partager » dans le bingo. Un bingo public reste modifiable uniquement par son auteur.</span>
             </div>
             <div class="form-actions">
                 <button type="button" id="cancel-btn" class="btn btn--neutral">Annuler</button>
@@ -443,7 +438,6 @@ async function handleSaveBingo(e, editId) {
         }
 
         const published = document.getElementById("f-published")?.checked === true;
-        const shareAfterSave = document.getElementById("f-share-after-save")?.checked === true;
         const savedBingo = { id: editId, title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells };
 
         if (editId) {
@@ -480,12 +474,6 @@ async function handleSaveBingo(e, editId) {
             savedBingo.id = createdRef.id;
             if (published) await publishBingo(savedBingo);
             showToast("Bingo créé avec succès !", "success");
-        }
-        if (shareAfterSave) {
-            const shareId = await createShareLink(savedBingo);
-            const url = new URL(`?share=${encodeURIComponent(shareId)}`, window.location.origin).href;
-            await navigator.clipboard.writeText(url);
-            showToast("Lien de partage copié.", "success");
         }
         clearCreateDraft(editId);
         await navigateWithHeader(() => renderDashboard());
