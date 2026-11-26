@@ -72,7 +72,7 @@ function getMissingFirebaseKeys(config) {
 const missingFirebaseKeys = getMissingFirebaseKeys(FIREBASE_CONFIG);
 if (missingFirebaseKeys.length) {
     const app = document.getElementById("app");
-    const expectedConfigFile = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    const expectedConfigFile = window.__IS_LOCAL_DEV__ === true
         ? "js/firebase-config.local.js (ou fallback local js/firebase-config.js)"
         : "js/firebase-config.js";
     if (app) {
