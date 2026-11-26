@@ -105,6 +105,17 @@ export async function renderPlayView(bingoId, source = "owned") {
         } else {
             const snap = await getDoc(bingoDocRef(bingoId));
             bingo = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+            if (bingo?.published && currentUser && !currentUser.isAnonymous) {
+                const publicSnap = await getDoc(publicBingoDocRef(bingoId));
+                if (publicSnap.exists()) {
+                    activePublicBingoId = bingoId;
+                    const publicCells = publicSnap.data().markedCells;
+                    if (Array.isArray(bingo.markedCells)
+                        && JSON.stringify(publicCells || []) !== JSON.stringify(bingo.markedCells)) {
+                        await updatePublicBingoMarks(bingoId, bingo.markedCells);
+                    }
+                }
+            }
         }
         if (!bingo) {
             showToast("Bingo introuvable.", "error");
@@ -149,7 +160,7 @@ export async function renderPlayView(bingoId, source = "owned") {
     }
     liveMarkedCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
     await renderPlayBoard(bingo, source, saveId, canSave);
-    if (source === "public") subscribeToPublicBingo(bingo);
+    if (activePublicBingoId) subscribeToPublicBingo({ ...bingo, id: activePublicBingoId }, source);
 }
 
 async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSave = source === "owned") {
@@ -301,7 +312,7 @@ function scheduleSave(id, canSave = true, publicBingoId = null) {
     saveTimer = setTimeout(() => {
         saveTimer = null;
         void saveMarkedCells(id, [...liveMarkedCells], canSave, publicBingoId);
-    }, 800);
+    }, 150);
 }
 
 async function saveMarkedCells(id, cells, canSave = true, publicBingoId = null) {
@@ -313,7 +324,8 @@ async function saveMarkedCells(id, cells, canSave = true, publicBingoId = null) 
         if (publicBingoId) batch.update(publicBingoDocRef(publicBingoId), update);
         await batch.commit();
     } catch (err) {
-        console.error("Save error:", err);
+        console.error("Bingo sync save error:", err);
+        showToast("La synchronisation du bingo a échoué. Vérifiez les règles Firestore.", "error");
     }
 }
 
@@ -326,14 +338,17 @@ async function updatePublicBingoMarks(publicBingoId, cells) {
     await batch.commit();
 }
 
-function subscribeToPublicBingo(bingo) {
+function subscribeToPublicBingo(bingo, source = "public") {
     let lastSnapshotCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
     stopPublicBingoSync = onSnapshot(publicBingoDocRef(bingo.id), snapshot => {
         if (!snapshot.exists()) {
             stopPublicBingoSync?.();
             stopPublicBingoSync = null;
+            activePublicBingoId = null;
             showToast("Ce bingo n'est plus public.", "warning");
-            void navigateWithHeader(() => renderDashboard(null, "", "discover"));
+            if (source === "public") {
+                void navigateWithHeader(() => renderDashboard(null, "", "discover"));
+            }
             return;
         }
         const nextBingo = { id: bingo.id, ...snapshot.data() };
@@ -371,7 +386,7 @@ function subscribeToPublicBingo(bingo) {
                     getSmallestPatternZoom(bingo.categoryPattern)
                 );
             }
-            void renderPlayBoard(bingo, "public", activeSaveId, activeCanSave);
+            void renderPlayBoard(bingo, source, activeSaveId, activeCanSave);
             return;
         }
 
