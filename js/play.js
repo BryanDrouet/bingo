@@ -329,10 +329,20 @@ async function updatePublicBingoMarks(publicBingoId, cells) {
 function subscribeToPublicBingo(bingo) {
     let lastSnapshotCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
     stopPublicBingoSync = onSnapshot(publicBingoDocRef(bingo.id), snapshot => {
-        if (!snapshot.exists()) return;
-        const nextCells = snapshot.data().markedCells;
-        if (!Array.isArray(nextCells) || nextCells.length !== bingo.size * bingo.size) return;
-        if (nextCells.every((marked, index) => marked === lastSnapshotCells[index])) return;
+        if (!snapshot.exists()) {
+            stopPublicBingoSync?.();
+            stopPublicBingoSync = null;
+            showToast("Ce bingo n'est plus public.", "warning");
+            void navigateWithHeader(() => renderDashboard(null, "", "discover"));
+            return;
+        }
+        const nextBingo = { id: bingo.id, ...snapshot.data() };
+        const nextCells = Array.isArray(nextBingo.markedCells)
+            ? nextBingo.markedCells
+            : new Array(nextBingo.size * nextBingo.size).fill(false);
+        if (!Array.isArray(nextCells)
+            || nextCells.length !== nextBingo.size * nextBingo.size
+            || nextCells.some(marked => typeof marked !== "boolean")) return;
 
         const hasPendingLocalChanges = saveTimer !== null;
         const cellsToApply = nextCells.map((marked, index) => (
@@ -340,8 +350,32 @@ function subscribeToPublicBingo(bingo) {
                 ? liveMarkedCells[index]
                 : marked
         ));
+        const bingoDetailsChanged = nextBingo.title !== bingo.title
+            || nextBingo.category !== bingo.category
+            || nextBingo.categoryColor !== bingo.categoryColor
+            || nextBingo.categoryPattern !== bingo.categoryPattern
+            || nextBingo.categoryPatternZoom !== bingo.categoryPatternZoom
+            || nextBingo.size !== bingo.size
+            || JSON.stringify(nextBingo.cells) !== JSON.stringify(bingo.cells);
         lastSnapshotCells = [...nextCells];
         liveMarkedCells = cellsToApply;
+
+        if (bingoDetailsChanged) {
+            bingo = { ...nextBingo, markedCells: cellsToApply };
+            if (normalizeCategoryName(bingo.category) === normalizeCategoryName("Sans catégorie")) {
+                resetBodyAccentTheme();
+            } else {
+                applyBodyAccentTheme(
+                    bingo.categoryColor,
+                    bingo.categoryPattern,
+                    getSmallestPatternZoom(bingo.categoryPattern)
+                );
+            }
+            void renderPlayBoard(bingo, "public", activeSaveId, activeCanSave);
+            return;
+        }
+
+        bingo = nextBingo;
         document.querySelectorAll(".bingo-cell").forEach((cell, index) => {
             const marked = Boolean(liveMarkedCells[index]);
             cell.classList.toggle("marked", marked);

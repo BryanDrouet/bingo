@@ -88,7 +88,7 @@ import {
     bingoDocRef,
     bingoCollRef,
     fetchBingos,
-    fetchPublicBingos,
+    subscribeToPublicBingos,
     unpublishBingo
 } from "./bingos.js";
 import { addDoc } from "./firebase-client.js";
@@ -117,11 +117,17 @@ let dashboardSearchDebounceTimer = null;
 let dashboardSearchMediaQuery = null;
 let dashboardCategoryRegistry = { byKey: {}, list: [], colorByName: {} };
 let dashboardMode = "mine";
+let stopPublicBingoUpdates = null;
 let pendingProfilePhotoFile = null;
 let pendingProfilePhotoObjectUrl = "";
 let pendingProfilePhotoCropState = null;
 let pendingProfilePhotoCropMeta = null;
 let profileCropperCloseTimer = null;
+
+function stopDiscoverBingoSubscription() {
+    stopPublicBingoUpdates?.();
+    stopPublicBingoUpdates = null;
+}
 
 async function updateCategoryColorForName(categoryName, nextColor) {
     const targets = dashboardAllBingos.filter(
@@ -244,10 +250,10 @@ function updateDashboardSearchFeedback(error) {
     input.removeAttribute("title");
 }
 
-function applyDashboardFilters(filterCategory = null, searchQuery = "") {
+function applyDashboardFilters(filterCategory = null, searchQuery = "", animate = true) {
     const { results, error } = filterDashboardBingos(filterCategory, searchQuery);
     updateDashboardSearchFeedback(error);
-    renderBingoCards(results, { filterCategory, searchQuery, regexError: error });
+    renderBingoCards(results, { filterCategory, searchQuery, regexError: error, animate });
 }
 
 function handleDashboardSearchInput() {
@@ -286,6 +292,7 @@ export function updateDashboardSearchPlaceholder() {
 
 
 export async function renderDashboard(filterCategory = null, searchQuery = "", mode = "mine") {
+    stopDiscoverBingoSubscription();
     dashboardMode = mode;
     resetBodyAccentTheme();
     setCurrentViewState({ name: "dashboard", dashboardMode, filterCategory: filterCategory || null, searchQuery: searchQuery || "", bingoId: null, editId: null });
@@ -354,6 +361,7 @@ export async function renderDashboard(filterCategory = null, searchQuery = "", m
         </div>
     `);
     document.getElementById("create-bingo-btn")?.addEventListener("click", () => {
+        stopDiscoverBingoSubscription();
         void navigateWithHeader(() => renderCreateView());
     });
     document.getElementById("dashboard-mine-tab")?.addEventListener("click", () => {
@@ -363,8 +371,14 @@ export async function renderDashboard(filterCategory = null, searchQuery = "", m
         void switchDashboardMode("discover");
     });
     setupProfileMenu({
-        onAccount: () => navigateWithHeader(() => renderAccountView()),
-        onSignOut: handleSignOut
+        onAccount: () => {
+            stopDiscoverBingoSubscription();
+            return navigateWithHeader(() => renderAccountView());
+        },
+        onSignOut: () => {
+            stopDiscoverBingoSubscription();
+            return handleSignOut();
+        }
     });
     document.getElementById("dashboard-search")?.addEventListener("input", handleDashboardSearchInput);
     if (dashboardSearchMediaQuery) {
@@ -383,12 +397,20 @@ export async function renderDashboard(filterCategory = null, searchQuery = "", m
     updateYears();
     initIcons();
 
-    dashboardAllBingos = dashboardMode === "discover" ? await fetchPublicBingos() : await fetchBingos();
+    if (dashboardMode === "discover") {
+        dashboardAllBingos = [];
+        document.getElementById("bingo-list").innerHTML = `
+            <div class="loading-state" style="grid-column:1/-1"><div class="loading-spinner"></div></div>
+        `;
+        startPublicBingoUpdates();
+    } else {
+        dashboardAllBingos = await fetchBingos();
+    }
     dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
     const categories = dashboardCategoryRegistry.list.map(entry => entry.name);
     renderCategoryFilters(categories, filterCategory);
     document.getElementById("create-bingo-btn")?.classList.toggle("hidden", dashboardMode === "discover");
-    applyDashboardFilters(filterCategory, searchQuery);
+    if (dashboardMode !== "discover") applyDashboardFilters(filterCategory, searchQuery);
     if (dashboardMode === "mine") void showMajorUpdateNotice();
 }
 
@@ -409,6 +431,7 @@ async function showMajorUpdateNotice() {
 
 async function switchDashboardMode(mode) {
     if (mode === dashboardMode) return;
+    stopDiscoverBingoSubscription();
     dashboardMode = mode;
     setCurrentViewState({
         name: "dashboard",
@@ -423,13 +446,62 @@ async function switchDashboardMode(mode) {
     document.getElementById("dashboard-discover-tab")?.classList.toggle("is-active", mode === "discover");
     document.getElementById("create-bingo-btn")?.classList.toggle("hidden", mode === "discover");
 
-    dashboardAllBingos = mode === "discover" ? await fetchPublicBingos() : await fetchBingos();
+    if (mode === "discover") {
+        dashboardAllBingos = [];
+        dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
+        renderCategoryFilters([], null);
+        updateDashboardSearchFeedback(null);
+        const searchInput = document.getElementById("dashboard-search");
+        if (searchInput) searchInput.value = "";
+        const list = document.getElementById("bingo-list");
+        if (list) {
+            list.innerHTML = `
+                <div class="loading-state" style="grid-column:1/-1"><div class="loading-spinner"></div></div>
+            `;
+        }
+        startPublicBingoUpdates();
+        return;
+    }
+
+    dashboardAllBingos = await fetchBingos();
     dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
     renderCategoryFilters(dashboardCategoryRegistry.list.map(entry => entry.name), null);
     updateDashboardSearchFeedback(null);
     const searchInput = document.getElementById("dashboard-search");
     if (searchInput) searchInput.value = "";
     renderBingoCards(dashboardAllBingos, { animate: false });
+}
+
+function startPublicBingoUpdates() {
+    stopPublicBingoUpdates = subscribeToPublicBingos(bingos => {
+        const list = document.getElementById("bingo-list");
+        if (dashboardMode !== "discover" || !list) {
+            stopPublicBingoUpdates?.();
+            stopPublicBingoUpdates = null;
+            return;
+        }
+
+        const selectedCategory = document.querySelector("#category-filters .chip.is-active")?.dataset.cat || null;
+        const searchQuery = document.getElementById("dashboard-search")?.value || "";
+        dashboardAllBingos = bingos;
+        dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
+        const activeCategory = dashboardCategoryRegistry.list.some(entry => entry.name === selectedCategory)
+            ? selectedCategory
+            : null;
+        renderCategoryFilters(dashboardCategoryRegistry.list.map(entry => entry.name), activeCategory);
+        applyDashboardFilters(activeCategory, searchQuery, false);
+    }, error => {
+        console.error("Public bingo list synchronization error:", error);
+        const list = document.getElementById("bingo-list");
+        if (list && dashboardMode === "discover") {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <p>La liste Découvrir n'a pas pu être synchronisée.</p>
+                </div>
+            `;
+        }
+        showToast("Impossible de synchroniser les bingos publics.", "error");
+    });
 }
 
 function renderCategoryFilters(categories, active) {
@@ -1741,17 +1813,20 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
     `).join("");
     el.querySelectorAll(".js-edit").forEach(btn => btn.addEventListener("click", e => {
         e.stopPropagation();
+        stopDiscoverBingoSubscription();
         void navigateWithHeader(() => renderCreateView(btn.dataset.id));
     }));
     el.querySelectorAll(".js-delete").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); handleDeleteBingo(btn.dataset.id); }));
     el.querySelectorAll(".js-duplicate").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); void handleDuplicatePublicBingo(btn.dataset.id); }));
     el.querySelectorAll(".bingo-card").forEach(card => {
         card.addEventListener("click", () => {
+            stopDiscoverBingoSubscription();
             void navigateWithHeader(() => renderPlayView(card.dataset.id, dashboardMode === "discover" ? "public" : "owned"));
         });
         card.addEventListener("keydown", e => {
             if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
+                stopDiscoverBingoSubscription();
                 void navigateWithHeader(() => renderPlayView(card.dataset.id, dashboardMode === "discover" ? "public" : "owned"));
             }
         });

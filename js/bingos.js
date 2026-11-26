@@ -10,7 +10,8 @@ import {
     query,
     orderBy,
     where,
-    limit
+    limit,
+    onSnapshot
 } from "./firebase-client.js";
 import { currentUser } from "./session.js";
 import { handleFirestoreError } from "./errors.js";
@@ -80,9 +81,15 @@ export async function createShareLink(bingo) {
     return shareRef.id;
 }
 
-export async function fetchPublicBingos() {
-    const snap = await getDocs(query(collection(db, "publicBingos"), orderBy("publishedAt", "desc"), limit(100)));
-    return snap.docs.map(d => ({ id: d.id, ...d.data(), source: "public" }));
+export function subscribeToPublicBingos(onUpdate, onError) {
+    const publicBingosQuery = query(
+        collection(db, "publicBingos"),
+        orderBy("publishedAt", "desc"),
+        limit(100)
+    );
+    return onSnapshot(publicBingosQuery, snapshot => {
+        onUpdate(snapshot.docs.map(d => ({ id: d.id, ...d.data(), source: "public" })));
+    }, onError);
 }
 
 export async function fetchSharedBingo(id) {
