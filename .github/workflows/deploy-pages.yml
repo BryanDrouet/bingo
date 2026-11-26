@@ -30,6 +30,22 @@ jobs:
           FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
         run: |
+          missing=()
+          for secret in \
+            FIREBASE_API_KEY \
+            FIREBASE_AUTH_DOMAIN \
+            FIREBASE_PROJECT_ID \
+            FIREBASE_STORAGE_BUCKET \
+            FIREBASE_MESSAGING_SENDER_ID \
+            FIREBASE_APP_ID; do
+            if [ -z "${!secret}" ]; then
+              missing+=("$secret")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing GitHub Actions secrets: ${missing[*]}. Add them in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
           cat > js/firebase-config.js <<EOF_CFG
           window.__FIREBASE_CONFIG__ = {
             apiKey: "${FIREBASE_API_KEY}",

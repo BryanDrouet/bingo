@@ -72,7 +72,11 @@
     </div>
 
     <a href="/mentions-legales/" id="info-fab" class="btn btn--dark btn--icon btn--round btn--fab" aria-label="Ouvrir les mentions légales" title="Mentions légales">
-        <i data-lucide="info" aria-hidden="true"></i>
+        <svg class="lucide lucide-info" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 16v-4"></path>
+            <path d="M12 8h.01"></path>
+        </svg>
     </a>
 
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
@@ -99,7 +103,7 @@
         }
 
         async function bootstrapApp() {
-            if ("serviceWorker" in navigator) {
+            if (!isLocalDevHost && "serviceWorker" in navigator) {
                 try {
                     const registration = await navigator.serviceWorker.register("/service-worker.js", {
                         scope: "/",

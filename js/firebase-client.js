@@ -72,9 +72,10 @@ function getMissingFirebaseKeys(config) {
 const missingFirebaseKeys = getMissingFirebaseKeys(FIREBASE_CONFIG);
 if (missingFirebaseKeys.length) {
     const app = document.getElementById("app");
-    const expectedConfigFile = window.__IS_LOCAL_DEV__ === true
-        ? "js/firebase-config.local.js (ou fallback local js/firebase-config.js)"
-        : "js/firebase-config.js";
+    const isLocalDev = window.__IS_LOCAL_DEV__ === true;
+    const expectedConfigMessage = isLocalDev
+        ? "Vérifiez que js/firebase-config.local.js (ou js/firebase-config.js) contient les six paramètres Firebase requis."
+        : "La configuration de déploiement Firebase est absente. Vérifiez les secrets FIREBASE_* dans GitHub > Settings > Secrets and variables > Actions, puis relancez le déploiement.";
     if (app) {
         app.innerHTML = `
             <div class="view view-login">
@@ -82,17 +83,19 @@ if (missingFirebaseKeys.length) {
                     <div class="header-left">
                         <div class="header-title-group">
                             <span class="header-main-text">Bingo</span>
+                            <span class="header-tag header-tag-live">Interactif</span>
                         </div>
                     </div>
                 </header>
                 <main class="login-body">
                     <div class="login-card">
                         <h1>Configuration manquante</h1>
-                        <p>La configuration Firebase n'est pas chargee. Verifiez le fichier ${expectedConfigFile}.</p>
+                        <p>${expectedConfigMessage}</p>
                     </div>
                 </main>
             </div>
         `;
+        if (window.lucide?.createIcons) window.lucide.createIcons();
     }
     throw new Error(`Firebase config missing keys: ${missingFirebaseKeys.join(", ")}`);
 }
