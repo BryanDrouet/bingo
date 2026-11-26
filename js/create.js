@@ -197,7 +197,7 @@ export async function renderCreateView(editId = null) {
                 </div>
             </div>
             <div class="form-group bingo-visibility-options">
-                <span class="cells-label">Visibilité et partage</span>
+                <span class="cells-label">Visibilité</span>
                 <label class="form-check">
                     <input type="checkbox" id="f-published" ${existing?.published ? "checked" : ""}>
                     <span>Publier ce bingo dans l’onglet Découvrir</span>

@@ -45,18 +45,17 @@ function fitBingoCellText() {
 }
 
 function debugPlayOverflow(source) {
-    const root = document.documentElement;
     const view = document.querySelector(".view-play");
     const playBody = document.querySelector(".view-play .play-body");
     const board = document.querySelector(".view-play .bingo-board-wrap");
     const grid = document.querySelector(".view-play .bingo-grid-play");
-    if (!root || !view || !playBody || !board || !grid) return;
+    if (!view || !playBody || !board || !grid) return;
 
-    const overflowY = Math.max(0, Math.round(root.scrollHeight - window.innerHeight));
+    const overflowY = Math.max(0, Math.round(playBody.scrollHeight - playBody.clientHeight));
     const metrics = {
         source,
         viewportHeight: window.innerHeight,
-        documentScrollHeight: root.scrollHeight,
+        playBodyScrollHeight: playBody.scrollHeight,
         overflowY,
         viewHeight: Math.round(view.getBoundingClientRect().height),
         playBodyHeight: Math.round(playBody.getBoundingClientRect().height),
@@ -76,7 +75,8 @@ function debugPlayOverflow(source) {
 
 export async function renderPlayView(bingoId, source = "owned") {
     setCurrentViewState({ name: "play", bingoId, bingoSource: source, editId: null, filterCategory: null });
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    const currentPlayMain = document.querySelector(".view-play .play-body");
+    if (currentPlayMain) currentPlayMain.scrollTop = 0;
     activeGameId = bingoId;
     activeSaveId = bingoId;
     activeCanSave = source === "owned";
@@ -146,9 +146,6 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
                     </div>
                 </div>
                 <div class="header-right">
-                    <button type="button" id="reset-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Réinitialiser les cases cochées" title="Réinitialiser les cases cochées">
-                        <i data-lucide="rotate-ccw" aria-hidden="true"></i>
-                    </button>
                     <button type="button" id="share-play-btn" class="btn btn--ghost-light btn--sm play-share-btn" aria-label="Partager ce bingo" title="Partager ce bingo par lien">
                         <i data-lucide="share-2" aria-hidden="true"></i>
                         <span>Partager</span>
@@ -179,21 +176,6 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
             saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave);
         }
         void navigateWithHeader(() => renderDashboard());
-    });
-
-    document.getElementById("reset-btn")?.addEventListener("click", async () => {
-        const confirmed = await showAppModal({
-            title: "Réinitialiser la grille",
-            message: "Toutes les cases cochées vont être décochées.",
-            confirmText: "Réinitialiser",
-            cancelText: "Annuler"
-        });
-        if (!confirmed) return;
-        liveMarkedCells = new Array(bingo.size * bingo.size).fill(false);
-        hasShownWinModal = false;
-        hasShownFinalWinModal = false;
-        await renderPlayBoard(bingo, source, saveId, canSave);
-        scheduleSave(saveId, [...liveMarkedCells], canSave);
     });
 
     document.getElementById("share-play-btn")?.addEventListener("click", async () => {

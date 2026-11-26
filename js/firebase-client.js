@@ -83,12 +83,12 @@ if (missingFirebaseKeys.length) {
                         </div>
                     </div>
                 </header>
-                <div class="login-body">
+                <main class="login-body">
                     <div class="login-card">
                         <h1>Configuration manquante</h1>
                         <p>La configuration Firebase n'est pas chargee. Verifiez le fichier ${expectedConfigFile}.</p>
                     </div>
-                </div>
+                </main>
             </div>
         `;
     }

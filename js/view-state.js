@@ -37,7 +37,7 @@ export function persistCurrentScrollPosition() {
     if (!currentViewState) return;
     currentViewState = {
         ...currentViewState,
-        scrollY: window.scrollY || 0
+        scrollY: document.querySelector(".view > main")?.scrollTop || 0
     };
     writeStoredJson(VIEW_STATE_STORAGE_KEY, currentViewState);
 }
@@ -45,7 +45,8 @@ export function persistCurrentScrollPosition() {
 export function restoreScrollPosition(scrollY = 0) {
     if (!scrollY) return;
     window.requestAnimationFrame(() => {
-        window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+        const main = document.querySelector(".view > main");
+        if (main) main.scrollTop = scrollY;
     });
 }
 

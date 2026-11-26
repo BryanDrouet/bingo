@@ -87,7 +87,8 @@ export async function replaceAppMarkup(markup, { animateOut = false, animateIn =
 export async function navigateWithHeader(renderFn) {
     persistCurrentScrollPosition();
     await animateCurrentViewOut();
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    const main = document.querySelector(".view > main");
+    if (main) main.scrollTop = 0;
     return renderFn();
 }
 

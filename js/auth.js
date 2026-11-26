@@ -194,7 +194,7 @@ export async function renderLoginView() {
                     </div>
                 </div>
             </header>
-            <div class="login-body">
+            <main class="login-body">
                 <div class="login-card login-card--auth">
                     <h1>Bienvenue</h1>
                     <p>Choisissez une méthode pour créer et gérer vos grilles de bingo.</p>
@@ -228,7 +228,7 @@ export async function renderLoginView() {
                         Continuer en invité
                     </button>
                 </div>
-            </div>
+            </main>
         </div>
     `);
 
