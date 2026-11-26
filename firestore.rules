@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isValidString(value, max) {
+      return value is string && value.size() > 0 && value.size() <= max;
+    }
+
+    function isValidSize(value) {
+      return value is int && value >= 3 && value <= 5;
+    }
+
+    function isValidCells(value, size) {
+      return value is list && value.size() == size * size;
+    }
+
+    function isValidMarked(value, size) {
+      return value is list && value.size() == size * size
+        && value.hasOnly([true, false]);
+    }
+
+    function isValidColor(value) {
+      return value is string && value.matches('^#[0-9A-Fa-f]{6}$');
+    }
+
+    function isValidPattern(value) {
+      return value is string && value.matches('^(none|[a-z0-9-]{1,64})$');
+    }
+
+    function isValidZoom(value) {
+      return (value is int || value is float)
+        && (value == 0.5 || value == 1 || value == 1.5 || value == 2);
+    }
+
+    function isValidBingo(data) {
+      return isValidString(data.title, 100)
+        && isValidString(data.category, 50)
+        && isValidSize(data.size)
+        && isValidCells(data.cells, data.size)
+        && (!data.keys().hasAny(['markedCells'])
+          || isValidMarked(data.markedCells, data.size))
+        && (!data.keys().hasAny(['categoryColor'])
+          || isValidColor(data.categoryColor))
+        && (!data.keys().hasAny(['categoryPattern'])
+          || isValidPattern(data.categoryPattern))
+        && (!data.keys().hasAny(['categoryPatternZoom'])
+          || isValidZoom(data.categoryPatternZoom))
+        && (!data.keys().hasAny(['published'])
+          || data.published is bool);
+    }
+
+    match /users/{userId}/bingos/{bingoId} {
+      allow read, delete: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'title','category','categoryColor','categoryPattern','categoryPatternZoom',
+          'size','cells','markedCells','published','createdAt','updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'title','category','size','cells','createdAt','updatedAt'
+        ])
+        && isValidBingo(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'title','category','categoryColor','categoryPattern','categoryPatternZoom',
+          'size','cells','markedCells','published','createdAt','updatedAt'
+        ])
+        && isValidBingo(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /publicBingos/{bingoId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'title','category','categoryColor','categoryPattern','categoryPatternZoom',
+          'size','cells','markedCells','published','ownerUid','sourceBingoId','publishedAt','updatedAt'
+        ])
+        && isValidBingo(request.resource.data)
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.sourceBingoId == resource.data.sourceBingoId
+        && isValidBingo(request.resource.data);
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /sharedBingos/{shareId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'title','category','categoryColor','categoryPattern','categoryPatternZoom',
+          'size','cells','markedCells','published','ownerUid','sourceBingoId','createdAt'
+        ])
+        && isValidBingo(request.resource.data);
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

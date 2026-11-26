@@ -84,7 +84,14 @@ import {
     generatedAvatarDataUrlToFile,
     getStoragePathFromPublicUrl
 } from "./avatars.js";
-import { bingoDocRef, fetchBingos } from "./bingos.js";
+import {
+    bingoDocRef,
+    bingoCollRef,
+    fetchBingos,
+    fetchPublicBingos,
+    unpublishBingo
+} from "./bingos.js";
+import { addDoc } from "./firebase-client.js";
 import {
     getProviderLabel,
     getProviderFactoryById,
@@ -109,6 +116,7 @@ let dashboardAllBingos = [];
 let dashboardSearchDebounceTimer = null;
 let dashboardSearchMediaQuery = null;
 let dashboardCategoryRegistry = { byKey: {}, list: [], colorByName: {} };
+let dashboardMode = "mine";
 let pendingProfilePhotoFile = null;
 let pendingProfilePhotoObjectUrl = "";
 let pendingProfilePhotoCropState = null;
@@ -254,6 +262,7 @@ function handleDashboardSearchInput() {
 
     setCurrentViewState({
         name: "dashboard",
+        dashboardMode,
         filterCategory: activeCategory || null,
         searchQuery,
         bingoId: null,
@@ -276,9 +285,10 @@ export function updateDashboardSearchPlaceholder() {
 }
 
 
-export async function renderDashboard(filterCategory = null, searchQuery = "") {
+export async function renderDashboard(filterCategory = null, searchQuery = "", mode = "mine") {
+    dashboardMode = mode;
     resetBodyAccentTheme();
-    setCurrentViewState({ name: "dashboard", filterCategory: filterCategory || null, searchQuery: searchQuery || "", bingoId: null, editId: null });
+    setCurrentViewState({ name: "dashboard", dashboardMode, filterCategory: filterCategory || null, searchQuery: searchQuery || "", bingoId: null, editId: null });
     const dashboardSearchPlaceholder = window.matchMedia("(max-width: 620px)").matches
         ? "Rechercher"
         : "Rechercher dans les titres, categories et contenus";
@@ -320,6 +330,10 @@ export async function renderDashboard(filterCategory = null, searchQuery = "") {
                 </div>
             </header>
             <main class="dashboard-body">
+                <div class="dashboard-tabs" role="tablist" aria-label="Contenu">
+                    <button type="button" class="dashboard-tab ${dashboardMode === "mine" ? "is-active" : ""}" id="dashboard-mine-tab">Mes bingos</button>
+                    <button type="button" class="dashboard-tab ${dashboardMode === "discover" ? "is-active" : ""}" id="dashboard-discover-tab">Découvrir</button>
+                </div>
                 <div class="dashboard-toolbar">
                     <div class="category-filters" id="category-filters" role="group" aria-label="Filtrer par catégorie"></div>
                     <div class="category-select-wrap">
@@ -342,6 +356,12 @@ export async function renderDashboard(filterCategory = null, searchQuery = "") {
     document.getElementById("create-bingo-btn")?.addEventListener("click", () => {
         void navigateWithHeader(() => renderCreateView());
     });
+    document.getElementById("dashboard-mine-tab")?.addEventListener("click", () => {
+        void switchDashboardMode("mine");
+    });
+    document.getElementById("dashboard-discover-tab")?.addEventListener("click", () => {
+        void switchDashboardMode("discover");
+    });
     setupProfileMenu({
         onAccount: () => navigateWithHeader(() => renderAccountView()),
         onSignOut: handleSignOut
@@ -363,11 +383,53 @@ export async function renderDashboard(filterCategory = null, searchQuery = "") {
     updateYears();
     initIcons();
 
-    dashboardAllBingos = await fetchBingos();
+    dashboardAllBingos = dashboardMode === "discover" ? await fetchPublicBingos() : await fetchBingos();
     dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
     const categories = dashboardCategoryRegistry.list.map(entry => entry.name);
     renderCategoryFilters(categories, filterCategory);
+    document.getElementById("create-bingo-btn")?.classList.toggle("hidden", dashboardMode === "discover");
     applyDashboardFilters(filterCategory, searchQuery);
+    if (dashboardMode === "mine") void showMajorUpdateNotice();
+}
+
+const APP_MAJOR_VERSION = "2.0";
+const LAST_SEEN_VERSION_KEY = "bingo-last-seen-major-version";
+
+async function showMajorUpdateNotice() {
+    if (localStorage.getItem(LAST_SEEN_VERSION_KEY) === APP_MAJOR_VERSION) return;
+    localStorage.setItem(LAST_SEEN_VERSION_KEY, APP_MAJOR_VERSION);
+    const shouldDiscover = await showAppModal({
+        title: "Nouveautés Bingo",
+        message: "Vous pouvez maintenant partager vos grilles par lien, publier un bingo dans Découvrir et dupliquer les créations publiques.",
+        confirmText: "Découvrir",
+        cancelText: "Plus tard"
+    });
+    if (shouldDiscover) await renderDashboard(null, "", "discover");
+}
+
+async function switchDashboardMode(mode) {
+    if (mode === dashboardMode) return;
+    dashboardMode = mode;
+    setCurrentViewState({
+        name: "dashboard",
+        dashboardMode,
+        filterCategory: null,
+        searchQuery: "",
+        bingoId: null,
+        editId: null
+    });
+
+    document.getElementById("dashboard-mine-tab")?.classList.toggle("is-active", mode === "mine");
+    document.getElementById("dashboard-discover-tab")?.classList.toggle("is-active", mode === "discover");
+    document.getElementById("create-bingo-btn")?.classList.toggle("hidden", mode === "discover");
+
+    dashboardAllBingos = mode === "discover" ? await fetchPublicBingos() : await fetchBingos();
+    dashboardCategoryRegistry = buildCategoryRegistry(dashboardAllBingos);
+    renderCategoryFilters(dashboardCategoryRegistry.list.map(entry => entry.name), null);
+    updateDashboardSearchFeedback(null);
+    const searchInput = document.getElementById("dashboard-search");
+    if (searchInput) searchInput.value = "";
+    renderBingoCards(dashboardAllBingos, { animate: false });
 }
 
 function renderCategoryFilters(categories, active) {
@@ -1595,7 +1657,7 @@ function getReauthProvider() {
 
 async function changeFilter(cat) {
     const searchQuery = document.getElementById("dashboard-search")?.value || "";
-    setCurrentViewState({ name: "dashboard", filterCategory: cat || null, searchQuery, bingoId: null, editId: null });
+    setCurrentViewState({ name: "dashboard", dashboardMode, filterCategory: cat || null, searchQuery, bingoId: null, editId: null });
     const filters = document.getElementById("category-filters");
     filters?.querySelectorAll(".chip").forEach(c => {
         c.classList.toggle("is-active", (c.dataset.cat || "") === (cat || ""));
@@ -1618,7 +1680,7 @@ async function changeFilter(cat) {
     applyDashboardFilters(cat, searchQuery);
 }
 
-function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", regexError = null } = {}) {
+function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", regexError = null, animate = true } = {}) {
     const el = document.getElementById("bingo-list");
     if (!el) return;
     if (!bingos.length) {
@@ -1656,10 +1718,11 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
                 </div>
             `;
         }
-        animateElementIn(el);
+        if (animate) animateElementIn(el);
         initIcons();
         return;
     }
+    const isDiscover = dashboardMode === "discover";
     el.innerHTML = bingos.map(b => `
         <article class="bingo-card" data-id="${b.id}" tabindex="0" role="button" aria-label="Ouvrir le bingo ${b.title}">
             <div class="bingo-card-meta">
@@ -1669,12 +1732,10 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
             <h3 class="bingo-card-title">${b.title}</h3>
             <div aria-hidden="true">${buildMiniPreview(b)}</div>
             <div class="bingo-card-actions">
-                <button type="button" class="btn btn--neutral btn--sm btn--icon js-edit" data-id="${b.id}" aria-label="Modifier ${b.title}">
-                    <i data-lucide="pencil" aria-hidden="true"></i>
-                </button>
-                <button type="button" class="btn btn--danger btn--sm btn--icon js-delete" data-id="${b.id}" aria-label="Supprimer ${b.title}">
-                    <i data-lucide="trash-2" aria-hidden="true"></i>
-                </button>
+                ${isDiscover && b.ownerUid !== currentUser.uid
+                    ? `<button type="button" class="btn btn--primary btn--sm js-duplicate" data-id="${b.id}" title="Créer une copie modifiable dans mes bingos">Dupliquer</button>`
+                    : `<button type="button" class="btn btn--neutral btn--sm btn--icon js-edit" data-id="${b.id}" aria-label="Modifier ${b.title}" title="Modifier ce bingo"><i data-lucide="pencil" aria-hidden="true"></i></button>
+                       <button type="button" class="btn btn--danger btn--sm btn--icon js-delete" data-id="${b.id}" aria-label="Supprimer ${b.title}" title="Supprimer ce bingo"><i data-lucide="trash-2" aria-hidden="true"></i></button>`}
             </div>
         </article>
     `).join("");
@@ -1683,19 +1744,43 @@ function renderBingoCards(bingos, { filterCategory = null, searchQuery = "", reg
         void navigateWithHeader(() => renderCreateView(btn.dataset.id));
     }));
     el.querySelectorAll(".js-delete").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); handleDeleteBingo(btn.dataset.id); }));
+    el.querySelectorAll(".js-duplicate").forEach(btn => btn.addEventListener("click", e => { e.stopPropagation(); void handleDuplicatePublicBingo(btn.dataset.id); }));
     el.querySelectorAll(".bingo-card").forEach(card => {
         card.addEventListener("click", () => {
-            void navigateWithHeader(() => renderPlayView(card.dataset.id));
+            void navigateWithHeader(() => renderPlayView(card.dataset.id, dashboardMode === "discover" ? "public" : "owned"));
         });
         card.addEventListener("keydown", e => {
             if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                void navigateWithHeader(() => renderPlayView(card.dataset.id));
+                void navigateWithHeader(() => renderPlayView(card.dataset.id, dashboardMode === "discover" ? "public" : "owned"));
             }
         });
     });
-    animateElementIn(el);
+    if (animate) animateElementIn(el);
     initIcons();
+}
+
+async function handleDuplicatePublicBingo(id) {
+    const bingo = dashboardAllBingos.find(item => item.id === id);
+    if (!bingo) return;
+    try {
+        await addDoc(bingoCollRef(), {
+            title: `${bingo.title} (copie)`,
+            category: bingo.category || "Sans catégorie",
+            categoryColor: bingo.categoryColor || "#CC0000",
+            categoryPattern: bingo.categoryPattern || "none",
+            categoryPatternZoom: bingo.categoryPatternZoom || 1,
+            size: bingo.size,
+            cells: bingo.cells,
+            markedCells: new Array(bingo.size * bingo.size).fill(false),
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
+        showToast("Bingo dupliqué dans vos grilles.", "success");
+    } catch (err) {
+        showToast("Impossible de dupliquer ce bingo.", "error");
+        console.error(err);
+    }
 }
 
 function buildMiniPreview(bingo) {
@@ -1717,6 +1802,8 @@ async function handleDeleteBingo(id) {
     });
     if (!confirmed) return;
     try {
+        const bingo = dashboardAllBingos.find(item => item.id === id);
+        if (bingo?.published) await unpublishBingo(id);
         await deleteDoc(bingoDocRef(id));
         showToast("Bingo supprimé.", "success");
         await navigateWithHeader(() => renderDashboard());

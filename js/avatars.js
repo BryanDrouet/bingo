@@ -66,12 +66,12 @@ export function renderAvatarImage(url, altText, imageClass, { id = "", hostClass
     const cleanUrl = stripAvatarCropMeta(url);
     const idAttr = id ? ` id="${id}"` : "";
     if (!cropMeta) {
-        return `<img src="${escapeHtml(cleanUrl)}" alt="${escapeHtml(altText)}" class="${imageClass}"${idAttr}>`;
+        return `<img src="${escapeHtml(cleanUrl)}" alt="${escapeHtml(altText)}" class="${imageClass}" data-avatar-fallback="1"${idAttr}>`;
     }
 
     return `
         <span class="avatar-crop-host ${hostClass}">
-            <img src="${escapeHtml(cleanUrl)}" alt="${escapeHtml(altText)}" class="${imageClass} avatar-crop-image" style="${buildAvatarCropInlineStyle(cropMeta)}"${idAttr}>
+            <img src="${escapeHtml(cleanUrl)}" alt="${escapeHtml(altText)}" class="${imageClass} avatar-crop-image" style="${buildAvatarCropInlineStyle(cropMeta)}" data-avatar-fallback="1"${idAttr}>
         </span>
     `;
 }

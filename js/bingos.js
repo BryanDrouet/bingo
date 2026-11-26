@@ -2,7 +2,11 @@ import {
     db,
     collection,
     doc,
+    addDoc,
     getDocs,
+    getDoc,
+    setDoc,
+    deleteDoc,
     query,
     orderBy,
     where,
@@ -19,6 +23,68 @@ export function bingoCollRef() {
 
 export function bingoDocRef(id) {
     return doc(db, `users/${currentUser.uid}/bingos/${id}`);
+}
+
+export function publicBingoDocRef(id) {
+    return doc(db, `publicBingos/${id}`);
+}
+
+export function sharedBingoDocRef(id) {
+    return doc(db, `sharedBingos/${id}`);
+}
+
+function bingoPublicData(bingo) {
+    return {
+        title: bingo.title,
+        category: bingo.category,
+        categoryColor: bingo.categoryColor || "#CC0000",
+        categoryPattern: bingo.categoryPattern || "none",
+        categoryPatternZoom: bingo.categoryPatternZoom || 1,
+        size: bingo.size,
+        cells: bingo.cells,
+        markedCells: new Array(bingo.size * bingo.size).fill(false),
+        published: true
+    };
+}
+
+export async function publishBingo(bingo) {
+    const ref = publicBingoDocRef(bingo.id);
+    await setDoc(ref, {
+        ...bingoPublicData(bingo),
+        ownerUid: currentUser.uid,
+        sourceBingoId: bingo.id,
+        publishedAt: bingo.publishedAt || new Date(),
+        updatedAt: new Date()
+    });
+}
+
+export async function unpublishBingo(id) {
+    await deleteDoc(publicBingoDocRef(id));
+}
+
+export async function createShareLink(bingo) {
+    const shareRef = await addDoc(collection(db, "sharedBingos"), {
+        ...bingoPublicData(bingo),
+        ownerUid: currentUser.uid,
+        sourceBingoId: bingo.id,
+        createdAt: new Date()
+    });
+    return shareRef.id;
+}
+
+export async function fetchPublicBingos() {
+    const snap = await getDocs(query(collection(db, "publicBingos"), orderBy("publishedAt", "desc"), limit(100)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data(), source: "public" }));
+}
+
+export async function fetchSharedBingo(id) {
+    const snap = await getDoc(sharedBingoDocRef(id));
+    return snap.exists() ? { id: snap.id, ...snap.data(), source: "shared" } : null;
+}
+
+export async function fetchPublicBingo(id) {
+    const snap = await getDoc(publicBingoDocRef(id));
+    return snap.exists() ? { id: snap.id, ...snap.data(), source: "public" } : null;
 }
 
 

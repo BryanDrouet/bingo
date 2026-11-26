@@ -1,6 +1,6 @@
 import { getDoc, updateDoc, serverTimestamp } from "./firebase-client.js";
 import { currentUser } from "./session.js";
-import { bingoDocRef } from "./bingos.js";
+import { bingoDocRef, fetchPublicBingo, fetchSharedBingo, createShareLink } from "./bingos.js";
 import { setCurrentViewState } from "./view-state.js";
 import { replaceAppMarkup, navigateWithHeader, showAppModal, initIcons, updateYears, showToast } from "./ui.js";
 import {
@@ -15,6 +15,8 @@ import { renderDashboard } from "./dashboard.js";
 
 let saveTimer = null;
 let activeGameId = null;
+let activeSaveId = null;
+let activeCanSave = false;
 let liveMarkedCells = [];
 let hasShownWinModal = false;
 let hasShownFinalWinModal = false;
@@ -72,22 +74,42 @@ function debugPlayOverflow(source) {
     });
 }
 
-export async function renderPlayView(bingoId) {
-    setCurrentViewState({ name: "play", bingoId, editId: null, filterCategory: null });
+export async function renderPlayView(bingoId, source = "owned") {
+    setCurrentViewState({ name: "play", bingoId, bingoSource: source, editId: null, filterCategory: null });
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     activeGameId = bingoId;
+    activeSaveId = bingoId;
+    activeCanSave = source === "owned";
     hasShownWinModal = false;
     hasShownFinalWinModal = false;
 
     let bingo;
+    let saveId = bingoId;
+    let canSave = source === "owned";
     try {
-        const snap = await getDoc(bingoDocRef(bingoId));
-        if (!snap.exists()) {
+        if (source === "public") {
+            bingo = await fetchPublicBingo(bingoId);
+        } else if (source === "shared") {
+            bingo = await fetchSharedBingo(bingoId);
+        } else {
+            const snap = await getDoc(bingoDocRef(bingoId));
+            bingo = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+        }
+        if (!bingo) {
             showToast("Bingo introuvable.", "error");
             await renderDashboard();
             return;
         }
-        bingo = { id: snap.id, ...snap.data() };
+        if (source === "public" && bingo.ownerUid === currentUser?.uid && bingo.sourceBingoId) {
+            saveId = bingo.sourceBingoId;
+            canSave = true;
+            activeSaveId = saveId;
+            activeCanSave = true;
+            const ownerSnap = await getDoc(bingoDocRef(saveId));
+            if (ownerSnap.exists()) {
+                bingo = { ...bingo, markedCells: ownerSnap.data().markedCells };
+            }
+        }
     } catch {
         showToast("Erreur lors du chargement du bingo.", "error");
         await renderDashboard();
@@ -105,10 +127,10 @@ export async function renderPlayView(bingoId) {
         );
     }
     liveMarkedCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
-    await renderPlayBoard(bingo);
+    await renderPlayBoard(bingo, source, saveId, canSave);
 }
 
-async function renderPlayBoard(bingo) {
+async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSave = source === "owned") {
     const size = bingo.size;
 
     await replaceAppMarkup(`
@@ -124,8 +146,11 @@ async function renderPlayBoard(bingo) {
                     </div>
                 </div>
                 <div class="header-right">
-                    <button type="button" id="reset-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Réinitialiser les cases cochées">
+                    <button type="button" id="reset-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Réinitialiser les cases cochées" title="Réinitialiser les cases cochées">
                         <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" id="share-play-btn" class="btn btn--ghost-light btn--sm btn--icon" aria-label="Partager ce bingo" title="Partager ce bingo par lien">
+                        <i data-lucide="share-2" aria-hidden="true"></i>
                     </button>
                 </div>
             </header>
@@ -150,7 +175,7 @@ async function renderPlayBoard(bingo) {
     document.getElementById("back-play-btn")?.addEventListener("click", () => {
         if (saveTimer) {
             clearTimeout(saveTimer);
-            saveMarkedCells(activeGameId, [...liveMarkedCells]);
+            saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave);
         }
         void navigateWithHeader(() => renderDashboard());
     });
@@ -166,8 +191,26 @@ async function renderPlayBoard(bingo) {
         liveMarkedCells = new Array(bingo.size * bingo.size).fill(false);
         hasShownWinModal = false;
         hasShownFinalWinModal = false;
-        await renderPlayBoard(bingo);
-        scheduleSave(activeGameId, [...liveMarkedCells]);
+        await renderPlayBoard(bingo, source, saveId, canSave);
+        scheduleSave(saveId, [...liveMarkedCells], canSave);
+    });
+
+    document.getElementById("share-play-btn")?.addEventListener("click", async () => {
+        try {
+            const shareId = source === "owned"
+                ? await createShareLink(bingo)
+                : source === "shared"
+                    ? new URLSearchParams(window.location.search).get("share")
+                    : null;
+            const url = source === "public"
+                ? new URL(`?public=${encodeURIComponent(bingo.id)}`, window.location.origin).href
+                : new URL(`?share=${encodeURIComponent(shareId)}`, window.location.origin).href;
+            await navigator.clipboard.writeText(url);
+            showToast("Lien de partage copié.", "success");
+        } catch (err) {
+            showToast("Impossible de créer le lien de partage.", "error");
+            console.error(err);
+        }
     });
 
     document.querySelectorAll(".bingo-cell").forEach(cell => {
@@ -199,7 +242,7 @@ async function renderPlayBoard(bingo) {
                     hideCancel: true
                 });
             }
-            scheduleSave(activeGameId, [...liveMarkedCells]);
+            scheduleSave(saveId, [...liveMarkedCells], canSave);
         });
     });
 
@@ -229,13 +272,13 @@ function checkFullGridWin(marked) {
     return Array.isArray(marked) && marked.length > 0 && marked.every(Boolean);
 }
 
-function scheduleSave(id, cells) {
+function scheduleSave(id, cells, canSave = true) {
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveMarkedCells(id, cells), 800);
+    saveTimer = setTimeout(() => saveMarkedCells(id, cells, canSave), 800);
 }
 
-async function saveMarkedCells(id, cells) {
-    if (!currentUser || !id) return;
+async function saveMarkedCells(id, cells, canSave = true) {
+    if (!currentUser || !id || !canSave) return;
     try {
         await updateDoc(bingoDocRef(id), { markedCells: cells, updatedAt: serverTimestamp() });
     } catch (err) {
@@ -246,6 +289,6 @@ async function saveMarkedCells(id, cells) {
 export async function flushPendingPlaySave() {
     if (saveTimer) {
         clearTimeout(saveTimer);
-        await saveMarkedCells(activeGameId, [...liveMarkedCells]);
+        await saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave);
     }
 }

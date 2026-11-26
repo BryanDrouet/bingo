@@ -171,6 +171,32 @@ export function showAppModal({ title, message, confirmText = "Confirmer", cancel
 
 export function initIcons() {
     if (window.lucide) window.lucide.createIcons();
+    initAvatarFallbacks();
+}
+
+export function initAvatarFallbacks(root = document) {
+    root.querySelectorAll('img[data-avatar-fallback="1"]').forEach(image => {
+        if (image.dataset.fallbackBound === "1") return;
+        image.dataset.fallbackBound = "1";
+
+        const replaceWithFallback = () => {
+            if (!image.isConnected) return;
+            const alt = image.alt || "";
+            const identity = alt.replace(/^Photo de profil de\s*/i, "").trim();
+            const initial = (identity || "U").charAt(0).toUpperCase();
+            const isAccountAvatar = image.classList.contains("account-avatar");
+            const fallback = document.createElement("span");
+            fallback.className = isAccountAvatar
+                ? "account-avatar account-avatar--fallback"
+                : "img img--avatar img-avatar-fallback";
+            fallback.setAttribute("aria-label", alt || "Avatar utilisateur");
+            fallback.textContent = initial;
+            image.replaceWith(fallback);
+        };
+
+        image.addEventListener("error", replaceWithFallback, { once: true });
+        if (image.complete && image.naturalWidth === 0) replaceWithFallback();
+    });
 }
 
 export function updateYears() {

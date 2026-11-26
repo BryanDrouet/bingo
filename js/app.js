@@ -1,4 +1,4 @@
-import { auth, getRedirectResult, onAuthStateChanged } from "./firebase-client.js";
+import { auth, getRedirectResult, onAuthStateChanged, signInAnonymously } from "./firebase-client.js";
 import { setCurrentUser } from "./session.js";
 import {
     initCookieBanner,
@@ -36,12 +36,24 @@ onAuthStateChanged(auth, user => {
         void ensureAnonymousProfileAvatar(user).then(() => restoreAppState());
     } else {
         resetPendingProfilePhotoState();
-        void renderLoginView();
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("share") || params.has("public")) {
+            void signInAnonymously(auth).catch(() => renderLoginView());
+        } else {
+            void renderLoginView();
+        }
     }
 });
 
 async function restoreAppState() {
     const storedState = readStoredJson(VIEW_STATE_STORAGE_KEY);
+    const params = new URLSearchParams(window.location.search);
+    const sharedId = params.get("share");
+    const publicId = params.get("public");
+    if (sharedId || publicId) {
+        await renderPlayView(sharedId || publicId, sharedId ? "shared" : "public");
+        return;
+    }
 
     if (!storedState || storedState.name === "login") {
         await renderDashboard();
@@ -55,7 +67,7 @@ async function restoreAppState() {
     }
 
     if (storedState.name === "play" && storedState.bingoId) {
-        await renderPlayView(storedState.bingoId);
+        await renderPlayView(storedState.bingoId, storedState.bingoSource || "owned");
         restoreScrollPosition(storedState.scrollY || 0);
         return;
     }
@@ -66,7 +78,7 @@ async function restoreAppState() {
         return;
     }
 
-    await renderDashboard(storedState.filterCategory || null, storedState.searchQuery || "");
+    await renderDashboard(storedState.filterCategory || null, storedState.searchQuery || "", storedState.dashboardMode || "mine");
     restoreScrollPosition(storedState.scrollY || 0);
 }
 

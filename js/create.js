@@ -1,7 +1,15 @@
 import { addDoc, getDoc, updateDoc, serverTimestamp } from "./firebase-client.js";
 import { CREATE_DRAFT_STORAGE_KEY, currentViewState, readStoredJson, writeStoredJson, removeStoredItem, setCurrentViewState } from "./view-state.js";
 import { animateElementIn, replaceAppMarkup, navigateWithHeader, initIcons, showToast, escapeHtml } from "./ui.js";
-import { MAX_BINGOS, bingoCollRef, bingoDocRef, fetchBingos } from "./bingos.js";
+import {
+    MAX_BINGOS,
+    bingoCollRef,
+    bingoDocRef,
+    fetchBingos,
+    publishBingo,
+    unpublishBingo,
+    createShareLink
+} from "./bingos.js";
 import {
     normalizeHexColor,
     getSmallestPatternZoom,
@@ -188,6 +196,18 @@ export async function renderCreateView(editId = null) {
                 <div id="cells-editor" class="cells-grid-editor cells-editor-${size}">
                     ${buildCellInputs(size, draft?.cells || existing?.cells)}
                 </div>
+            </div>
+            <div class="form-group bingo-visibility-options">
+                <span class="cells-label">Visibilité et partage</span>
+                <label class="form-check">
+                    <input type="checkbox" id="f-published" ${existing?.published ? "checked" : ""}>
+                    <span>Publier ce bingo dans l’onglet Découvrir</span>
+                </label>
+                <label class="form-check">
+                    <input type="checkbox" id="f-share-after-save">
+                    <span>Créer un lien de partage après l’enregistrement</span>
+                </label>
+                <span class="form-hint">Un bingo public reste modifiable uniquement par son auteur.</span>
             </div>
             <div class="form-actions">
                 <button type="button" id="cancel-btn" class="btn btn--neutral">Annuler</button>
@@ -422,8 +442,21 @@ async function handleSaveBingo(e, editId) {
             return;
         }
 
+        const published = document.getElementById("f-published")?.checked === true;
+        const shareAfterSave = document.getElementById("f-share-after-save")?.checked === true;
+        const savedBingo = { id: editId, title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells };
+
         if (editId) {
-            await updateDoc(bingoDocRef(editId), { title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells, updatedAt: serverTimestamp() });
+            await updateDoc(bingoDocRef(editId), {
+                title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells,
+                published,
+                updatedAt: serverTimestamp()
+            });
+            if (published) {
+                await publishBingo(savedBingo);
+            } else if (existing?.published) {
+                await unpublishBingo(editId);
+            }
             showToast("Bingo modifié avec succès.", "success");
         } else {
             if (all.length >= MAX_BINGOS) {
@@ -431,7 +464,7 @@ async function handleSaveBingo(e, editId) {
                 if (submit) submit.disabled = false;
                 return;
             }
-            await addDoc(bingoCollRef(), {
+            const createdRef = await addDoc(bingoCollRef(), {
                 title,
                 category,
                 categoryColor,
@@ -440,10 +473,19 @@ async function handleSaveBingo(e, editId) {
                 size,
                 cells,
                 markedCells: new Array(size * size).fill(false),
+                published,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             });
+            savedBingo.id = createdRef.id;
+            if (published) await publishBingo(savedBingo);
             showToast("Bingo créé avec succès !", "success");
+        }
+        if (shareAfterSave) {
+            const shareId = await createShareLink(savedBingo);
+            const url = new URL(`?share=${encodeURIComponent(shareId)}`, window.location.origin).href;
+            await navigator.clipboard.writeText(url);
+            showToast("Lien de partage copié.", "success");
         }
         clearCreateDraft(editId);
         await navigateWithHeader(() => renderDashboard());

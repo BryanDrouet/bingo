@@ -26,6 +26,7 @@ import {
 import { setCurrentViewState, clearPersistedAppState } from "./view-state.js";
 import { buildHeaderTagMarkup, resetBodyAccentTheme } from "./categories.js";
 import { extractErrorCode, logAuthError } from "./errors.js";
+import { createGeneratedInitialsAvatarUrl } from "./avatars.js";
 
 let flushPlayState = async () => {};
 
@@ -459,7 +460,11 @@ export async function ensureAnonymousProfileAvatar(user) {
         const seed = String(user.uid || `guest-${Date.now()}`).slice(0, 24);
         await updateProfile(user, {
             displayName: user.displayName || "Invité",
-            photoURL: `https://api.dicebear.com/9.x/glass/svg?seed=${encodeURIComponent(seed)}&radius=0`
+            photoURL: createGeneratedInitialsAvatarUrl({
+                displayName: "Invité",
+                uid: seed,
+                seed
+            })
         });
         setCurrentUser(auth.currentUser || user);
     } catch (err) {

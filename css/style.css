@@ -412,6 +412,16 @@ button {
     flex-shrink: 0;
     border: none;
 }
+.img-avatar-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--black-light);
+    color: var(--white);
+    border: 2px solid rgba(255,255,255,0.28);
+    font-size: 0.75rem;
+    font-weight: 900;
+}
 .img--icon-sm { width: 18px; height: 18px; flex-shrink: 0; }
 .img--icon { width: 22px; height: 22px; flex-shrink: 0; }
 .img--icon-lg { width: 32px; height: 32px; flex-shrink: 0; }
@@ -1564,6 +1574,44 @@ button {
     box-shadow: 6px 6px 0 var(--black-light);
 }
 
+.dashboard-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 0;
+}
+
+.dashboard-tab {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 16px;
+    border: 2px solid var(--black-light);
+    border-radius: var(--radius-sm);
+    background: var(--white);
+    color: var(--black-light);
+    cursor: pointer;
+    font: 700 0.875rem var(--font);
+    transition: background-color var(--dur), color var(--dur), border-color var(--dur), transform var(--dur);
+}
+
+.dashboard-tab:hover,
+.dashboard-tab:focus-visible {
+    background: var(--gray-100);
+    outline: none;
+}
+
+.dashboard-tab.is-active {
+    background: var(--black-light);
+    color: var(--white);
+    border-color: var(--black-light);
+}
+
+.dashboard-tab.is-active:hover,
+.dashboard-tab.is-active:focus-visible {
+    background: var(--black);
+    border-color: var(--black);
+}
+
 .dashboard-search {
     display: flex;
     align-items: center;
@@ -1834,6 +1882,10 @@ button {
 }
 .bingo-card:hover { transform: translate(-3px, -3px); box-shadow: 7px 7px 0 var(--black-light); }
 .bingo-card:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--black-light); }
+.bingo-card:has(.bingo-card-actions button:hover) {
+    transform: none;
+    box-shadow: 4px 4px 0 var(--black-light);
+}
 
 .bingo-card-meta {
     display: flex;
@@ -1918,6 +1970,33 @@ button {
 .bingo-card-actions button,
 .form-actions button {
     border: none !important;
+}
+
+.bingo-visibility-options {
+    gap: 6px;
+}
+
+.form-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.form-group .form-check input[type="checkbox"] {
+    appearance: auto;
+    width: 18px !important;
+    min-width: 18px;
+    max-width: 18px;
+    height: 18px !important;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: var(--theme-red);
 }
 
 
