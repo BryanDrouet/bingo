@@ -5,6 +5,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isRegisteredUser() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
@@ -81,7 +86,7 @@ service cloud.firestore {
 
     match /publicBingos/{bingoId} {
       allow read: if true;
-      allow create: if signedIn()
+      allow create: if isRegisteredUser()
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'title','category','categoryColor','categoryPattern','categoryPatternZoom',
@@ -89,7 +94,7 @@ service cloud.firestore {
         ])
         && isValidBingo(request.resource.data)
         && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if signedIn()
+      allow update: if isRegisteredUser()
         && resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerUid == resource.data.ownerUid
         && request.resource.data.sourceBingoId == resource.data.sourceBingoId

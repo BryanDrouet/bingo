@@ -49,11 +49,19 @@ function bingoPublicData(bingo) {
 
 export async function publishBingo(bingo) {
     const ref = publicBingoDocRef(bingo.id);
+    const existing = await getDoc(ref);
+    const existingData = existing.exists() ? existing.data() : null;
+    const existingMarkedCells = existingData?.markedCells;
+    const markedCells = Array.isArray(existingMarkedCells)
+        && existingMarkedCells.length === bingo.size * bingo.size
+        ? existingMarkedCells
+        : new Array(bingo.size * bingo.size).fill(false);
     await setDoc(ref, {
         ...bingoPublicData(bingo),
+        markedCells,
         ownerUid: currentUser.uid,
         sourceBingoId: bingo.id,
-        publishedAt: bingo.publishedAt || new Date(),
+        publishedAt: existingData?.publishedAt || bingo.publishedAt || new Date(),
         updatedAt: new Date()
     });
 }

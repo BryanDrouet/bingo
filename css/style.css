@@ -2060,11 +2060,6 @@ button {
 .empty-state p:last-child { opacity: 0.65; font-size: 1rem; }
 .empty-state p:nth-child(3) { font-weight: normal; }
 
-.dashboard-body:has(.empty-state) {
-    gap: 0;
-}
-
-
 .view-create .create-body {
     flex: 1;
     padding: 24px 16px 48px;

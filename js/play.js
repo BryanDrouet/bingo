@@ -1,6 +1,12 @@
-import { getDoc, updateDoc, serverTimestamp } from "./firebase-client.js";
+import { db, getDoc, onSnapshot, writeBatch, serverTimestamp } from "./firebase-client.js";
 import { currentUser } from "./session.js";
-import { bingoDocRef, fetchPublicBingo, fetchSharedBingo, createShareLink } from "./bingos.js";
+import {
+    bingoDocRef,
+    publicBingoDocRef,
+    fetchPublicBingo,
+    fetchSharedBingo,
+    createShareLink
+} from "./bingos.js";
 import { setCurrentViewState } from "./view-state.js";
 import { replaceAppMarkup, navigateWithHeader, showAppModal, initIcons, updateYears, showToast } from "./ui.js";
 import {
@@ -17,6 +23,8 @@ let saveTimer = null;
 let activeGameId = null;
 let activeSaveId = null;
 let activeCanSave = false;
+let activePublicBingoId = null;
+let stopPublicBingoSync = null;
 let liveMarkedCells = [];
 let hasShownWinModal = false;
 let hasShownFinalWinModal = false;
@@ -74,12 +82,15 @@ function debugPlayOverflow(source) {
 }
 
 export async function renderPlayView(bingoId, source = "owned") {
+    stopPublicBingoSync?.();
+    stopPublicBingoSync = null;
     setCurrentViewState({ name: "play", bingoId, bingoSource: source, editId: null, filterCategory: null });
     const currentPlayMain = document.querySelector(".view-play .play-body");
     if (currentPlayMain) currentPlayMain.scrollTop = 0;
     activeGameId = bingoId;
     activeSaveId = bingoId;
     activeCanSave = source === "owned";
+    activePublicBingoId = null;
     hasShownWinModal = false;
     hasShownFinalWinModal = false;
 
@@ -100,15 +111,25 @@ export async function renderPlayView(bingoId, source = "owned") {
             await renderDashboard();
             return;
         }
-        if (source === "public" && bingo.ownerUid === currentUser?.uid && bingo.sourceBingoId) {
+        if (source === "public" && currentUser && bingo.ownerUid === currentUser.uid && bingo.sourceBingoId) {
             saveId = bingo.sourceBingoId;
             canSave = true;
             activeSaveId = saveId;
             activeCanSave = true;
             const ownerSnap = await getDoc(bingoDocRef(saveId));
             if (ownerSnap.exists()) {
-                bingo = { ...bingo, markedCells: ownerSnap.data().markedCells };
+                const storedMarkedCells = ownerSnap.data().markedCells;
+                const ownerMarkedCells = Array.isArray(storedMarkedCells)
+                    && storedMarkedCells.length === bingo.size * bingo.size
+                    ? storedMarkedCells
+                    : new Array(bingo.size * bingo.size).fill(false);
+                if (!currentUser.isAnonymous
+                    && JSON.stringify(ownerMarkedCells) !== JSON.stringify(bingo.markedCells || [])) {
+                    await updatePublicBingoMarks(bingoId, ownerMarkedCells);
+                }
+                bingo = { ...bingo, markedCells: ownerMarkedCells };
             }
+            if (!currentUser.isAnonymous) activePublicBingoId = bingoId;
         }
     } catch {
         showToast("Erreur lors du chargement du bingo.", "error");
@@ -128,6 +149,7 @@ export async function renderPlayView(bingoId, source = "owned") {
     }
     liveMarkedCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
     await renderPlayBoard(bingo, source, saveId, canSave);
+    if (source === "public") subscribeToPublicBingo(bingo);
 }
 
 async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSave = source === "owned") {
@@ -173,8 +195,11 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
     document.getElementById("back-play-btn")?.addEventListener("click", () => {
         if (saveTimer) {
             clearTimeout(saveTimer);
-            saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave);
+            saveTimer = null;
+            saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave, activePublicBingoId);
         }
+        stopPublicBingoSync?.();
+        stopPublicBingoSync = null;
         void navigateWithHeader(() => renderDashboard());
     });
 
@@ -241,7 +266,7 @@ async function renderPlayBoard(bingo, source = "owned", saveId = bingo.id, canSa
                     hideCancel: true
                 });
             }
-            scheduleSave(saveId, [...liveMarkedCells], canSave);
+            scheduleSave(saveId, canSave, activePublicBingoId);
         });
     });
 
@@ -271,23 +296,70 @@ function checkFullGridWin(marked) {
     return Array.isArray(marked) && marked.length > 0 && marked.every(Boolean);
 }
 
-function scheduleSave(id, cells, canSave = true) {
+function scheduleSave(id, canSave = true, publicBingoId = null) {
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveMarkedCells(id, cells, canSave), 800);
+    saveTimer = setTimeout(() => {
+        saveTimer = null;
+        void saveMarkedCells(id, [...liveMarkedCells], canSave, publicBingoId);
+    }, 800);
 }
 
-async function saveMarkedCells(id, cells, canSave = true) {
+async function saveMarkedCells(id, cells, canSave = true, publicBingoId = null) {
     if (!currentUser || !id || !canSave) return;
     try {
-        await updateDoc(bingoDocRef(id), { markedCells: cells, updatedAt: serverTimestamp() });
+        const batch = writeBatch(db);
+        const update = { markedCells: cells, updatedAt: serverTimestamp() };
+        batch.update(bingoDocRef(id), update);
+        if (publicBingoId) batch.update(publicBingoDocRef(publicBingoId), update);
+        await batch.commit();
     } catch (err) {
         console.error("Save error:", err);
     }
 }
 
+async function updatePublicBingoMarks(publicBingoId, cells) {
+    const batch = writeBatch(db);
+    batch.update(publicBingoDocRef(publicBingoId), {
+        markedCells: cells,
+        updatedAt: serverTimestamp()
+    });
+    await batch.commit();
+}
+
+function subscribeToPublicBingo(bingo) {
+    let lastSnapshotCells = [...(bingo.markedCells || new Array(bingo.size * bingo.size).fill(false))];
+    stopPublicBingoSync = onSnapshot(publicBingoDocRef(bingo.id), snapshot => {
+        if (!snapshot.exists()) return;
+        const nextCells = snapshot.data().markedCells;
+        if (!Array.isArray(nextCells) || nextCells.length !== bingo.size * bingo.size) return;
+        if (nextCells.every((marked, index) => marked === lastSnapshotCells[index])) return;
+
+        const hasPendingLocalChanges = saveTimer !== null;
+        const cellsToApply = nextCells.map((marked, index) => (
+            hasPendingLocalChanges && liveMarkedCells[index] !== lastSnapshotCells[index]
+                ? liveMarkedCells[index]
+                : marked
+        ));
+        lastSnapshotCells = [...nextCells];
+        liveMarkedCells = cellsToApply;
+        document.querySelectorAll(".bingo-cell").forEach((cell, index) => {
+            const marked = Boolean(liveMarkedCells[index]);
+            cell.classList.toggle("marked", marked);
+            cell.setAttribute("aria-pressed", String(marked));
+            cell.setAttribute("aria-label", `${bingo.cells[index] || "Case vide"}, ${marked ? "cochée" : "non cochée"}`);
+        });
+    }, error => {
+        console.error("Public bingo synchronization error:", error);
+        showToast("La synchronisation en direct de ce bingo est indisponible.", "error");
+    });
+}
+
 export async function flushPendingPlaySave() {
     if (saveTimer) {
         clearTimeout(saveTimer);
-        await saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave);
+        saveTimer = null;
+        await saveMarkedCells(activeSaveId, [...liveMarkedCells], activeCanSave, activePublicBingoId);
     }
+    stopPublicBingoSync?.();
+    stopPublicBingoSync = null;
 }

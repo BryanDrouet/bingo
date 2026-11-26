@@ -25,6 +25,7 @@ import {
 } from "./categories.js";
 import { getFriendlyErrorDetails, logStyledError } from "./errors.js";
 import { renderDashboard } from "./dashboard.js";
+import { currentUser } from "./session.js";
 
 const MAX_CELL_TEXT_LENGTH = 80;
 
@@ -135,6 +136,7 @@ export async function renderCreateView(editId = null) {
         "none"
     );
     const size = draft?.size || existing?.size || 3;
+    const isGuest = currentUser?.isAnonymous === true;
     const main = document.querySelector(".view-create .create-body");
     if (!main) return;
 
@@ -199,10 +201,10 @@ export async function renderCreateView(editId = null) {
             <div class="form-group bingo-visibility-options">
                 <span class="cells-label">Visibilité</span>
                 <label class="form-check">
-                    <input type="checkbox" id="f-published" ${existing?.published ? "checked" : ""}>
+                    <input type="checkbox" id="f-published" ${existing?.published ? "checked" : ""} ${isGuest ? "disabled" : ""}>
                     <span>Publier ce bingo dans l’onglet Découvrir</span>
                 </label>
-                <span class="form-hint">Les liens de partage sont accessibles depuis le bouton « Partager » dans le bingo. Un bingo public reste modifiable uniquement par son auteur.</span>
+                <span class="form-hint">${isGuest ? "La publication dans Découvrir nécessite un compte connecté." : "Un bingo public reste modifiable uniquement par son auteur."} Les liens de partage sont accessibles depuis le bouton « Partager » dans le bingo.</span>
             </div>
             <div class="form-actions">
                 <button type="button" id="cancel-btn" class="btn btn--neutral">Annuler</button>
@@ -437,7 +439,7 @@ async function handleSaveBingo(e, editId) {
             return;
         }
 
-        const published = document.getElementById("f-published")?.checked === true;
+        const published = !currentUser?.isAnonymous && document.getElementById("f-published")?.checked === true;
         const savedBingo = { id: editId, title, category, categoryColor, categoryPattern, categoryPatternZoom, size, cells };
 
         if (editId) {
